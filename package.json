@@ -2,7 +2,7 @@
   "name": "memact-schema",
   "private": true,
   "version": "0.0.0",
-  "description": "Evidence-induced virtual cognitive schema layer for Memact.",
+  "description": "Schema packet layer for repeated evidence patterns inside Memact intent infrastructure.",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./src/engine.mjs",
@@ -14,7 +14,8 @@
   "keywords": [
     "memact",
     "schema",
-    "cognitive-schema",
+    "schema-packets",
+    "intent",
     "deterministic",
     "evidence-induced",
     "memory"
