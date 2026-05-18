@@ -8,15 +8,30 @@ Understand what users are trying to do.
 
 Memact is infrastructure that helps apps predict user intent from approved digital activity, without giving them raw access to a user's private data.
 
-This repo is the Schema layer. It detects repeated evidence patterns and forms schema packets that downstream Memory and Intent layers can use.
+This repo is the Schema layer. It groups semantic evidence into repeated cognitive-style schema packets that downstream Intent and Memory layers can use.
 
 ## System position
 
 ```text
-Access -> Capture -> Inference -> Schema -> Memory -> Intent
+Website manages -> Access gates -> Capture records -> Inference understands -> Schema groups -> Intent predicts -> Memory stores -> Apps consume
 ```
 
-Schema forms structured packets from repeated meaningful activity. It does not capture browser data, diagnose the user, store long-term memory, or produce final intent predictions.
+Schema forms structured packets from repeated semantic evidence. It does not capture browser data, infer raw meaning, diagnose the user, store long-term memory, or produce final intent predictions.
+
+## What this repo owns
+
+- repeated semantic-evidence grouping
+- cognitive-style schema packet formation
+- schema support, cohesion, lifecycle labels, and evidence links
+- schema networks emitted as `memact.schema.v0`
+
+## What this repo does not own
+
+- browser/page capture
+- raw semantic inference
+- current intent prediction
+- durable memory storage
+- app-facing permission checks
 
 ## Copy rules
 

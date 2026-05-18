@@ -2,15 +2,17 @@
 
 Version: `v0.0`
 
-Schema forms virtual cognitive-schema packets from retained evidence.
+Schema groups semantic evidence into repeated cognitive-style patterns.
 
 It owns one job:
 
 ```text
-detect repeated frames in meaningful activity
+form schema packets from repeated semantic evidence
 ```
 
-Schema does not capture browser data, store long-term memory, or diagnose the user. It emits cautious schema signals that Memory can store and update.
+Schema does not capture browser data, infer raw meaning, predict current intent,
+store long-term memory, or diagnose the user. It emits cautious schema signals
+that Intent can read and Memory can store after the pipeline is gated by Access.
 
 ## What This Repo Owns
 
@@ -21,7 +23,15 @@ Schema does not capture browser data, store long-term memory, or diagnose the us
 - Classifies schema nodes and edges into cognitive dimensions such as action,
   evaluation, identity, affect, and social context.
 - Keeps evidence records attached to every schema.
-- Emits a schema network for Memory and query-time engines.
+- Emits a schema network for Intent, Memory, and query-time engines.
+
+## What This Repo Does Not Own
+
+- Browser/page capture.
+- Raw semantic inference from captured activity.
+- Current intent prediction.
+- Durable memory storage or forgetting.
+- App-facing permission checks.
 
 ## Input
 
@@ -101,6 +111,7 @@ npm run schema -- --input path\to\inference-output.json --format json
 - A schema packet is a virtual mirror, not a medical claim.
 - Schemas contain classified nodes and edges. They are knowledge-graph packets,
   not plain topic labels.
+- Intent can use schemas as context for current-goal prediction.
 - Memory decides whether a schema survives.
 
 ## License
