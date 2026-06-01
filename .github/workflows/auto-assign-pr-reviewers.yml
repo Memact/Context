@@ -1,0 +1,89 @@
+name: Auto-assign PR reviewers
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  request-org-reviewers:
+    name: Request Memact org reviewers
+    if: ${{ github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Request reviewers from Memact org members
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.MEMACT_ORG_REVIEWER_TOKEN || github.token }}
+          script: |
+            const orgLogin = 'Memact';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pullNumber = context.payload.pull_request.number;
+            const author = context.payload.pull_request.user.login;
+            const maxReviewers = 15;
+
+            if (owner.toLowerCase() !== orgLogin.toLowerCase()) {
+              core.info(`Skipping reviewer assignment because ${owner}/${repo} is not owned by ${orgLogin}.`);
+              return;
+            }
+
+            const normalize = (login) => login.toLowerCase();
+            const excludedLogins = new Set([normalize(author)]);
+
+            const { data: reviewRequests } = await github.rest.pulls.listRequestedReviewers({
+              owner,
+              repo,
+              pull_number: pullNumber,
+            });
+            for (const reviewer of reviewRequests.users) {
+              excludedLogins.add(normalize(reviewer.login));
+            }
+
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner,
+              repo,
+              pull_number: pullNumber,
+              per_page: 100,
+            });
+            for (const review of reviews) {
+              excludedLogins.add(normalize(review.user.login));
+            }
+
+            let members = [];
+            try {
+              members = await github.paginate(github.rest.orgs.listMembers, {
+                org: orgLogin,
+                role: 'all',
+                per_page: 100,
+              });
+            } catch (error) {
+              core.warning(`Could not list ${orgLogin} org members: ${error.message}`);
+              core.warning('If this org has private membership, set MEMACT_ORG_REVIEWER_TOKEN to a token with read:org access.');
+            }
+
+            const reviewers = members
+              .filter((member) => member.type !== 'Bot')
+              .map((member) => member.login)
+              .filter((login, index, logins) =>
+                logins.findIndex((candidate) => normalize(candidate) === normalize(login)) === index
+              )
+              .filter((login) => !excludedLogins.has(normalize(login)))
+              .slice(0, maxReviewers);
+
+            if (reviewers.length === 0) {
+              core.info('No eligible Memact org members found to request for review.');
+              return;
+            }
+
+            await github.rest.pulls.requestReviewers({
+              owner,
+              repo,
+              pull_number: pullNumber,
+              reviewers,
+            });
+
+            core.info(`Requested PR review from: ${reviewers.join(', ')}`);
