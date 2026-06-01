@@ -2,15 +2,17 @@
 
 Schema defines app category schemas for Memact.
 
-Apps do not always send clean user context. Sometimes they send signals: orders, skips, saves, exports, replays, searches, repeated settings, and other app activity.
+The main thing Schema categorizes is user context.
 
-Schema is where Memact decides what those signals mean, what category they belong to, and what kind of user-readable context can be proposed from them.
+Apps may already have clean context, like `prefers short workouts` or `likes high-energy music`. They may also have app activity records, like skipped playlists, repeated orders, saved items, exported files, watched videos, completed lessons, search queries, or changed settings.
+
+Schema does not pretend every activity record is already context. It defines the category, fields, examples, and rules that help Memact turn activity into a user-readable context proposal later.
 
 ## For SSoC26 Contributors
 
 Start here if you are new to Memact.
 
-Schema is the main beginner-friendly contribution path. Pick an app category you understand and define how signals and context should work there.
+Schema is the main beginner-friendly contribution path. Pick an app category you understand and define what useful context looks like there.
 
 Before starting, read:
 
@@ -29,14 +31,14 @@ Please comment on an issue before starting so work does not get duplicated.
 A good category schema contribution should include:
 
 - useful context fields
-- raw app signal examples
+- app activity examples
 - normalized context examples
 - user-facing Wiki entry templates
 - fields that require extra care
 - category-level permission suggestions
 - basic tests
 
-Important rule: apps can send signals or propose context, but users control what becomes accepted memory.
+Important rule: apps can send proposed context or activity records, but users control what becomes accepted memory.
 
 Prefer user-readable summaries over raw personal data. Do not infer sensitive traits. Do not write fake certainty.
 
@@ -44,7 +46,7 @@ Prefer user-readable summaries over raw personal data. Do not infer sensitive tr
 
 - App category schemas.
 - Useful context fields for each app category.
-- Example app signal dumps.
+- Example app activity records.
 - Normalization rules.
 - User-facing Wiki entry templates.
 - User prompts for missing context.
@@ -57,17 +59,18 @@ Prefer user-readable summaries over raw personal data. Do not infer sensitive tr
 - Wiki storage or user editing.
 - Memory retrieval.
 - SDK network calls.
+- The full inference system that turns every kind of activity into context.
 - Retired Capture, Inference, or Intent pipelines.
 
 ## Flow
 
 ```text
-App signals or proposed context -> Category schema -> Wiki entry proposal -> User review -> Memory
+App activity or proposed context -> Category schema -> Wiki proposal -> User review -> Memory
 ```
 
 ## Contributor Work
 
-Contributors should pick an app category and define how signals become useful context there.
+Contributors should pick an app category and define the context shape for that category.
 
 Examples:
 
@@ -84,9 +87,9 @@ Examples:
 - productivity
 - AI assistants
 
-For each category, contributors can add schemas, signal examples, context fields, normalization rules, Wiki entry templates, access suggestions, and tests.
+For each category, contributors can add schemas, activity examples, context fields, normalization rules, Wiki entry templates, access suggestions, and tests.
 
-Example: a food app may send repeated sushi orders. Schema should help Memact treat that as possible food preference, not as raw order history that every app gets to read.
+Example: a food app may show repeated sushi orders. Schema should describe when that can become a food preference, and when it should stay as temporary activity.
 
 ## Current Code
 
