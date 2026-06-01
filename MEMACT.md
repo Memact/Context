@@ -6,9 +6,13 @@ Memact is a place where users can finally see what apps know about them.
 
 Most apps build a private version of the user.
 
-They learn from clicks, searches, orders, playlists, watch history, saved items, skipped items, and repeated habits. The user usually cannot see that profile clearly. They cannot clean it up. They cannot move it to another app. They just get whatever personalization the app decides to give them.
+They learn from clicks, searches, orders, playlists, watch history, saved items, skipped items, repeated settings, and habits. The user usually cannot see that profile clearly. They cannot clean it up. They cannot move it to another app. They just get whatever personalization the app decides to give them.
 
-Memact flips that as Apps can propose context, but the user gets a Wiki where that context can be reviewed, edited, rejected, deleted, or shared.
+Memact flips that.
+
+An app can send raw signals, like replays, skips, orders, exports, saves, or repeated settings. An app can also propose context directly when it already has a clean summary. Either way, the user should not be stuck with a hidden profile.
+
+Memact takes those app inputs and turns them into something the user can review in Wiki.
 
 Example:
 
@@ -18,9 +22,17 @@ A music app might notice:
 User replayed Brazilian phonk playlists 18 times this month and skipped slow acoustic playlists.
 ```
 
-The app should not turn that into some hidden permanent profile.
+That is a signal. It is useful, but it should not become a permanent hidden profile.
 
-It can propose a readable entry:
+Schema helps Memact understand what the signal is about:
+
+```text
+category: music
+kind: repeated listening
+possible context: prefers high-energy Brazilian phonk
+```
+
+Then the Wiki can show a readable proposal:
 
 ```text
 Prefers high-energy Brazilian phonk.
@@ -38,7 +50,7 @@ That edited user version is stronger than the app guess.
 
 Schema is the main beginner-friendly contribution path.
 
-You pick an app category and define how context should work there.
+You pick an app category and define how signals and context should work there.
 
 Good category examples:
 
@@ -56,8 +68,8 @@ Good category examples:
 For each category, add:
 
 - useful context fields
-- raw app input examples
-- normalized output examples
+- raw app signal examples
+- normalized context examples
 - user-facing Wiki entry templates
 - fields that need extra care
 - category-level permission suggestions
@@ -67,7 +79,7 @@ Do not build random features. Keep the PR focused on one category.
 
 ## What a good schema should do
 
-A good schema should turn messy app activity into clear user-facing context.
+A good schema should help Memact understand app activity without exposing raw private data everywhere.
 
 It should separate:
 
@@ -106,7 +118,8 @@ I prefer productivity content in the evening, especially short practical videos.
 
 ## Rules
 
-- Apps propose context. Users control what becomes memory.
+- Apps can send signals or propose context directly.
+- Users control what becomes memory.
 - Default visibility should be private.
 - Apps should not get full Wiki access.
 - Apps should only get relevant category context with permission.
