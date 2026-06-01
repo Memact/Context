@@ -2,23 +2,13 @@
 
 Memact is a place where users can finally see what apps know about them.
 
-Apps can bring context. Users decide what stays, what changes, and what gets removed.
-
-The short version:
-
-```text
-Apps send context -> Categories shape it -> Wiki lets users control it -> Memory stores what survives
-```
-
 ## The idea
 
 Most apps build a private version of the user.
 
 They learn from clicks, searches, orders, playlists, watch history, saved items, skipped items, and repeated habits. The user usually cannot see that profile clearly. They cannot clean it up. They cannot move it to another app. They just get whatever personalization the app decides to give them.
 
-Memact flips that.
-
-Apps can propose context, but the user gets a Wiki where that context can be reviewed, edited, rejected, deleted, or shared.
+Memact flips that as Apps can propose context, but the user gets a Wiki where that context can be reviewed, edited, rejected, deleted, or shared.
 
 Example:
 
@@ -147,9 +137,3 @@ npm run check
 ```
 
 Keep the first PR small. One category, clear examples, basic tests.
-
-## Best explanation
-
-Memact lets users see, edit, and control the app-generated version of themselves.
-
-Apps bring context. Categories organize it. Wiki keeps the user in charge.
