@@ -329,9 +329,22 @@ function buildMusicAttributes(records = []) {
     attributes[spec.output] = collectEvidenceValues(records, spec.aliases)
   }
 
+  // Sensitive keys are flagged for review when the app provided a meaningful value.
+  // We do NOT flag keys that are present but empty (empty string/empty array/empty object).
+  // This avoids false positives where an app includes a key name for schema reasons
+  // but does not provide identifying information (e.g. an empty `location` placeholder).
   const sensitiveFieldsRaw = records.flatMap((record) => {
     const evidence = record.evidence || {}
-    return Object.keys(evidence).filter((key) => MUSIC_SENSITIVE_KEYS.has(key) && evidence[key] !== undefined && evidence[key] !== null)
+    return Object.keys(evidence).filter((key) => {
+      if (!MUSIC_SENSITIVE_KEYS.has(key)) return false
+      const v = evidence[key]
+      if (v === undefined || v === null) return false
+      if (typeof v === "string") return v.trim() !== ""
+      if (Array.isArray(v)) return v.length > 0
+      if (typeof v === "object") return Object.keys(v).length > 0
+      // numbers and booleans are considered meaningful when present
+      return true
+    })
   })
   const sensitiveFields = [...new Set(sensitiveFieldsRaw)]
 
