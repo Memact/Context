@@ -235,8 +235,12 @@ export function groupByCategory(records = []) {
 
 export function inferSchemaType(record = {}) {
   const themes = Array.isArray(record.canonical_themes) ? record.canonical_themes : []
-  const text = `${record.category || ""} ${themes.join(" ")} ${record.evidence?.title || ""}`.toLowerCase()
-  if (/music|song|playlist|artist|album|track|genre|listening|listen/.test(text)) return "music_preferences"
+  const category = (record.category || "").toLowerCase()
+  // If the record explicitly declares its category as music, prefer that.
+  if (category === "music") return "music_preferences"
+  const text = `${category} ${themes.join(" ")} ${record.evidence?.title || ""}`.toLowerCase()
+  // Anchor on word boundaries and accept common plural forms to avoid substring false-positives
+  if (/\b(?:music|songs?|playlists?|artists?|albums?|tracks?|genres?|listening)\b/.test(text)) return "music_preferences"
   if (/reading|article|summary|scroll|finish|completion/.test(text)) return "reading_preferences"
   if (/shop|commerce|product/.test(text)) return "shopping"
   if (/learn|study|tutorial|course/.test(text)) return "learning"
