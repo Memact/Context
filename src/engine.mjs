@@ -355,8 +355,10 @@ function normalizeEvidenceValue(value) {
     return []
   }
 
+  // Preserve string values verbatim (as single entries).
+  // Splitting on commas can break legitimate names like "Earth, Wind & Fire".
   if (typeof value === "string") {
-    return value.split(",").map((item) => item.trim()).filter(Boolean)
+    return [value.trim()]
   }
 
   return [String(value)]
