@@ -35,7 +35,7 @@
   },
   "scripts": {
     "check": "node ./scripts/check.mjs",
-    "test": "node test/schema-packets.test.mjs && node test/news-articles.test.mjs",
+    "test": "node test/schema-packets.test.mjs && node test/news-articles.test.mjs && node test/ai-assistants.test.mjs",
     "context": "node ./src/cli.mjs",
     "schema": "node ./src/cli.mjs",
     "sample": "node ./src/cli.mjs --input examples/sample-inference-output.json --format report",
