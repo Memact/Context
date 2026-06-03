@@ -1,6 +1,6 @@
 # Memact Contributor Handoff
 
-Memact is a place where users can finally see what apps know about them.
+Memact is a place where users see what apps know about them and control it.
 
 ## The idea
 
@@ -10,7 +10,7 @@ They learn from clicks, searches, orders, playlists, watch history, saved items,
 
 Memact flips that.
 
-An app may send proposed context directly, like:
+An app may send a memory suggestion directly, like:
 
 ```text
 User prefers high-energy music.
@@ -24,7 +24,7 @@ User replayed Brazilian phonk playlists 18 times this month and skipped slow aco
 
 Those are not the same thing.
 
-Context mainly categorizes user context. It also defines how activity from a category should be understood before Memact turns it into a context proposal.
+Context mainly categorizes app input. It also defines how activity from a category should be handled before Memact turns it into a memory suggestion.
 
 This repo was formerly called Schema. If an older issue or PR says "Schema," it means this Context repo.
 
@@ -33,7 +33,7 @@ For the music example, Context can say:
 ```text
 category: music
 activity: repeated playlist replay
-possible context: prefers high-energy Brazilian phonk
+possible memory: prefers high-energy Brazilian phonk
 care note: do not expose raw listening history by default
 ```
 
@@ -51,7 +51,7 @@ I like Brazilian phonk mostly while working out.
 
 That edited user version is stronger than the app guess.
 
-Important: Context is not a surveillance or inference free-for-all. It defines categories, examples, fields, and safe rules so raw signals can become user-reviewable context proposals later.
+Important: Context is not a surveillance or inference free-for-all. It defines categories, examples, fields, and safe rules so app activity can become user-reviewable memory suggestions later.
 
 ## Core rule
 
@@ -65,7 +65,7 @@ Patterns matter. User edits matter more. One-off activity should stay weak, temp
 
 Context is the main beginner-friendly contribution path.
 
-You pick an app category and define what useful context looks like there.
+You pick an app category and define what useful memory looks like there.
 
 Good category examples:
 
@@ -82,9 +82,9 @@ Good category examples:
 
 For each category, add:
 
-- useful context fields
+- useful memory fields
 - app activity examples
-- normalized context examples
+- normalized memory examples
 - user-facing Wiki entry templates
 - fields that need extra care
 - category-level permission suggestions
@@ -101,7 +101,7 @@ It should separate:
 - stable preferences from temporary activity
 - explicit user choices from weak app guesses
 - useful summaries from raw private data
-- safe personalization context from sensitive inference
+- safe personalization memory from sensitive guesses
 
 Bad:
 
@@ -133,13 +133,13 @@ I prefer productivity content in the evening, especially short practical videos.
 
 ## Rules
 
-- Apps can send proposed context or app activity records.
+- Apps can send memory suggestions or app activity records.
 - Activity is not identity.
 - Users control what becomes memory.
 - Default visibility should be private.
 - Apps should not get full Wiki access.
-- Apps should only get relevant category context with permission.
-- User-added context is stronger than app-proposed context.
+- Apps should only get relevant category memory with permission.
+- User-added memory is stronger than app-proposed memory.
 - Important app writes should require approval.
 - Prefer readable summaries over raw personal data.
 - Do not infer sensitive traits.

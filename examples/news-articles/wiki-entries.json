@@ -1,0 +1,163 @@
+[
+  {
+    "id": "wiki_durable_technology",
+    "type": "interest",
+    "sub_type": "durable",
+    "proposed_text": "Recently reads several articles about Technology.",
+    "raw_source_summary": "Detected across 4 articles over 3 different days.",
+    "confidence": 1,
+    "requires_user_confirmation": false,
+    "actions": [
+      "approve",
+      "edit",
+      "reject",
+      "delete"
+    ]
+  },
+  {
+    "id": "wiki_durable_renewable_energy",
+    "type": "interest",
+    "sub_type": "durable",
+    "proposed_text": "Recently reads several articles about Renewable Energy.",
+    "raw_source_summary": "Detected across 4 articles over 2 different days.",
+    "confidence": 0.9,
+    "requires_user_confirmation": false,
+    "actions": [
+      "approve",
+      "edit",
+      "reject",
+      "delete"
+    ]
+  },
+  {
+    "id": "wiki_temporary_deep_space",
+    "type": "interest",
+    "sub_type": "temporary",
+    "proposed_text": "Briefly looked into Deep Space recently.",
+    "raw_source_summary": "Detected 1 read(s) under temporary curiosity rules.",
+    "confidence": 0.4,
+    "requires_user_confirmation": false,
+    "actions": [
+      "approve",
+      "edit",
+      "reject",
+      "delete"
+    ]
+  },
+  {
+    "id": "wiki_temporary_politics",
+    "type": "interest",
+    "sub_type": "temporary",
+    "proposed_text": "Has occasionally looked up Politics topics (temporary research or curiosity).",
+    "raw_source_summary": "Protected topic read detected. Treated as temporary research click to avoid permanent identity claim.",
+    "confidence": 0.4,
+    "requires_user_confirmation": true,
+    "actions": [
+      "approve",
+      "edit",
+      "reject",
+      "delete"
+    ]
+  },
+  {
+    "id": "wiki_temporary_election",
+    "type": "interest",
+    "sub_type": "temporary",
+    "proposed_text": "Has occasionally looked up Election topics (temporary research or curiosity).",
+    "raw_source_summary": "Protected topic read detected. Treated as temporary research click to avoid permanent identity claim.",
+    "confidence": 0.4,
+    "requires_user_confirmation": true,
+    "actions": [
+      "approve",
+      "edit",
+      "reject",
+      "delete"
+    ]
+  },
+  {
+    "id": "wiki_temporary_finance",
+    "type": "interest",
+    "sub_type": "temporary",
+    "proposed_text": "Has occasionally looked up Finance topics (temporary research or curiosity).",
+    "raw_source_summary": "Protected topic read detected. Treated as temporary research click to avoid permanent identity claim.",
+    "confidence": 0.4,
+    "requires_user_confirmation": true,
+    "actions": [
+      "approve",
+      "edit",
+      "reject",
+      "delete"
+    ]
+  },
+  {
+    "id": "wiki_temporary_crypto_speculation",
+    "type": "interest",
+    "sub_type": "temporary",
+    "proposed_text": "Has occasionally looked up Crypto-Speculation topics (temporary research or curiosity).",
+    "raw_source_summary": "Protected topic read detected. Treated as temporary research click to avoid permanent identity claim.",
+    "confidence": 0.4,
+    "requires_user_confirmation": true,
+    "actions": [
+      "approve",
+      "edit",
+      "reject",
+      "delete"
+    ]
+  },
+  {
+    "id": "wiki_pref_length",
+    "type": "preference",
+    "sub_type": "article_length",
+    "proposed_text": "Prefers medium-length articles.",
+    "raw_source_summary": "Calculated based on article reading duration metadata.",
+    "confidence": 0.8,
+    "requires_user_confirmation": false,
+    "actions": [
+      "approve",
+      "edit",
+      "reject"
+    ]
+  },
+  {
+    "id": "wiki_pref_format",
+    "type": "preference",
+    "sub_type": "article_format",
+    "proposed_text": "Often reads long-form explainers.",
+    "raw_source_summary": "Derived from content format patterns.",
+    "confidence": 0.75,
+    "requires_user_confirmation": false,
+    "actions": [
+      "approve",
+      "edit",
+      "reject"
+    ]
+  },
+  {
+    "id": "wiki_pref_publisher",
+    "type": "preference",
+    "sub_type": "publisher",
+    "proposed_text": "Regularly reads articles from TechChronicle and EcoTimes and GlobalNews.",
+    "raw_source_summary": "Frequent publisher interaction detected in history.",
+    "confidence": 0.85,
+    "requires_user_confirmation": false,
+    "actions": [
+      "approve",
+      "edit",
+      "reject"
+    ]
+  },
+  {
+    "id": "wiki_pref_cadence",
+    "type": "preference",
+    "sub_type": "reading_cadence",
+    "proposed_text": "Often reads articles in the morning.",
+    "raw_source_summary": "Generated from peak daily reading hour activity.",
+    "confidence": 0.7,
+    "requires_user_confirmation": false,
+    "actions": [
+      "approve",
+      "edit",
+      "reject"
+    ]
+  }
+]
