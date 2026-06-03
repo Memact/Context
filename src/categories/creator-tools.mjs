@@ -15,14 +15,14 @@ export const rawInputExamples = [
   {
     source: "figma.com",
     action: "export",
-    file_details: { name: "Client_NDA_Draft_v4_FINAL.png", dimensions: "1920x1080", compression: "lossless" },
+    file_details: { format: ".png", dimensions: "1920x1080", compression: "lossless" },
     style_tags: ["minimalist", "vector"],
     used_template: "None"
   },
   {
     source: "premiere-pro.app",
     action: "render",
-    project: "Confidential_Brand_Launch_Sequence.mp4",
+    project_type: "short-form video",
     export_preset: "YouTube 1080p 29.97fps",
     duration_seconds: 58,
     is_frequent_format: true
@@ -55,10 +55,10 @@ export const normalizedOutputExamples = [
 ];
 
 export const wikiEntryTemplates = [
-  "Frequently exports creative assets in {{preferred_export_formats}} formats.",
-  "Utilizes a {{design_style_preferences}} aesthetic style across workflows.",
-  "Regularly creates {{recurring_project_types}} projects.",
-  "Prefers working with {{preferred_templates}} templates."
+  "Often exports creative assets in {{preferred_export_formats}} formats.",
+  "Often uses {{design_style_preferences}} style signals across approved workflows.",
+  "Has repeated approved activity around {{recurring_project_types}} projects.",
+  "May prefer {{preferred_templates}} templates when enough approved evidence supports it."
 ];
 
 export const permissionSuggestions = {
