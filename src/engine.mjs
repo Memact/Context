@@ -218,6 +218,7 @@ export function inferSchemaType(record = {}) {
   if (/code|developer|debug|github/.test(text)) return "developer_work"
   if (/assistant|chat/.test(text)) return "ai_assistant_usage"
   if (/task|work|doc/.test(text)) return "productivity"
+  if (/fitness|workout|nutrition|diet|exercise/.test(text)) return "fitness"
   if (/prefer|like|choice/.test(text)) return "preferences"
   return "context"
 }
@@ -509,6 +510,7 @@ function inferRecordCategory(record = {}) {
   if (/code|developer|debug|github/.test(text)) return "developer_work"
   if (/assistant|chat/.test(text)) return "ai_assistant_usage"
   if (/task|work|doc/.test(text)) return "productivity"
+  if (/fitness|workout|nutrition|diet|exercise/.test(text)) return "fitness"
   if (/prefer|like|choice/.test(text)) return "preferences"
   return "general"
 }
