@@ -1,0 +1,109 @@
+{
+  "category": "news-articles",
+  "durable_interests": [
+    {
+      "topic": "Technology",
+      "confidence": 1,
+      "article_count": 4,
+      "distinct_days": 3,
+      "average_scroll_depth_percent": 78,
+      "first_seen": "2026-05-10T08:30:00Z",
+      "last_seen": "2026-05-12T08:45:00Z"
+    },
+    {
+      "topic": "Renewable Energy",
+      "confidence": 0.9,
+      "article_count": 4,
+      "distinct_days": 2,
+      "average_scroll_depth_percent": 83,
+      "first_seen": "2026-05-10T08:30:00Z",
+      "last_seen": "2026-05-15T15:10:00Z"
+    }
+  ],
+  "temporary_interests": [
+    {
+      "topic": "Deep Space",
+      "confidence": 0.4,
+      "article_count": 1,
+      "distinct_days": 1,
+      "average_scroll_depth_percent": 70,
+      "first_seen": "2026-05-16T19:30:00Z",
+      "last_seen": "2026-05-16T19:30:00Z",
+      "reason": "curiosity_click"
+    },
+    {
+      "topic": "Politics",
+      "confidence": 0.4,
+      "article_count": 2,
+      "distinct_days": 2,
+      "average_scroll_depth_percent": 88,
+      "first_seen": "2026-05-17T08:15:00Z",
+      "last_seen": "2026-05-18T09:40:00Z",
+      "reason": "sensitive_topic_protection",
+      "requires_user_confirmation": true
+    },
+    {
+      "topic": "Election",
+      "confidence": 0.4,
+      "article_count": 1,
+      "distinct_days": 1,
+      "average_scroll_depth_percent": 90,
+      "first_seen": "2026-05-17T08:15:00Z",
+      "last_seen": "2026-05-17T08:15:00Z",
+      "reason": "curiosity_click",
+      "requires_user_confirmation": true
+    },
+    {
+      "topic": "Finance",
+      "confidence": 0.4,
+      "article_count": 1,
+      "distinct_days": 1,
+      "average_scroll_depth_percent": 15,
+      "first_seen": "2026-05-18T11:20:00Z",
+      "last_seen": "2026-05-18T11:20:00Z",
+      "reason": "curiosity_click",
+      "requires_user_confirmation": true
+    },
+    {
+      "topic": "Crypto-Speculation",
+      "confidence": 0.4,
+      "article_count": 1,
+      "distinct_days": 1,
+      "average_scroll_depth_percent": 15,
+      "first_seen": "2026-05-18T11:20:00Z",
+      "last_seen": "2026-05-18T11:20:00Z",
+      "reason": "curiosity_click",
+      "requires_user_confirmation": true
+    }
+  ],
+  "reading_preferences": {
+    "preferred_article_lengths": [
+      "medium",
+      "long"
+    ],
+    "preferred_formats": [
+      "explainers",
+      "deep_dives",
+      "summaries"
+    ],
+    "preferred_publishers": [
+      "TechChronicle",
+      "EcoTimes",
+      "GlobalNews"
+    ],
+    "reading_cadence": "morning_reader"
+  },
+  "skipped_topics": [
+    "celebrity drama",
+    "finance",
+    "crypto-speculation"
+  ],
+  "saved_articles": [
+    {
+      "title": "Why Solid-State Batteries Are the Future of EVs",
+      "url": "https://techchronicle.com/solid-state-batteries",
+      "topic": "Technology",
+      "saved_at": "2026-05-10T08:32:00Z"
+    }
+  ]
+}

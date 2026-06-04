@@ -110,10 +110,15 @@ The existing v0 engine is still present for compatibility while Context moves to
 
 Current exports include:
 
+- `shapeContextProposal(input, options)`
+- `shapeContextProposals(inputs, options)`
 - `formSchemaPackets(records, options)`
 - `groupByCategory(records)`
 - `inferSchemaType(record)`
 - `createSchemaPacket(group)`
+
+`shapeContextProposal` is the current product-facing path. The schema-packet
+functions remain for compatibility while older contributor work is migrated.
 
 Do not treat Capture or Inference as current core product language. New work should prefer app category context rules and Wiki entry outputs.
 

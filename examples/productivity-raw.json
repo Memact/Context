@@ -1,0 +1,46 @@
+{
+  "schema_version": "memact.schema_input.v0",
+  "generated_at": "2026-06-01T00:00:00.000Z",
+  "source": {
+    "activity_count": 3
+  },
+  "records": [
+    {
+      "id": "prod_1",
+      "category": "productivity",
+      "source_label": "Todo App",
+      "canonical_themes": ["productivity", "task_organization"],
+      "evidence": {
+        "title": "Task organization sync",
+        "organization_style": "kanban",
+        "project_area": "design_system"
+      },
+      "meaningful_score": 0.85
+    },
+    {
+      "id": "prod_2",
+      "category": "productivity",
+      "source_label": "Calendar App",
+      "canonical_themes": ["productivity", "focus_time", "calendar"],
+      "evidence": {
+        "title": "Meeting preferences",
+        "focus_preference": "morning_deep_work",
+        "calendar_habit": "no_meetings_friday"
+      },
+      "meaningful_score": 0.78
+    },
+    {
+      "id": "prod_3",
+      "category": "productivity",
+      "source_label": "Overbroad Task App",
+      "canonical_themes": ["productivity", "tasks"],
+      "evidence": {
+        "title": "Raw task dump",
+        "raw_task_name": "Buy milk and eggs",
+        "private_note": "Lock code is 1234",
+        "organization_style": "list"
+      },
+      "meaningful_score": 0.4
+    }
+  ]
+}

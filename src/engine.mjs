@@ -1,4 +1,5 @@
 import { resolveSchemaLifecycleState, schemaLifecycleLabel } from "./lifecycle.mjs";
+import { buildProductivityAttributes, inferProductivitySubSchema } from "./categories/productivity.mjs";
 
 const DEFAULT_MIN_SUPPORT = 3;
 const DEFAULT_MIN_MEANINGFUL_SCORE = 0.38;
@@ -210,14 +211,14 @@ export function inferSchemaType(record = {}) {
   const themes = Array.isArray(record.canonical_themes) ? record.canonical_themes : []
   const text = `${record.category || ""} ${themes.join(" ")} ${record.evidence?.title || ""}`.toLowerCase()
   if (/reading|article|summary|scroll|finish|completion/.test(text)) return "reading_preferences"
-  if (/shop|commerce|product/.test(text)) return "shopping"
+  if (/\b(shopping|shop|commerce|product|products)\b/.test(text)) return "shopping"
   if (/learn|study|tutorial|course/.test(text)) return "learning"
   if (/research|paper|source|documentation|api/.test(text)) return "research"
   if (/focus|attention|load/.test(text)) return "attention"
   if (/video|audio|media/.test(text)) return "media"
   if (/code|developer|debug|github/.test(text)) return "developer_work"
   if (/assistant|chat/.test(text)) return "ai_assistant_usage"
-  if (/task|work|doc/.test(text)) return "productivity"
+  if (/\b(productivity|task|tasks|work|doc|docs)\b/.test(text)) return "productivity"
   if (/fitness|workout|nutrition|diet|exercise/.test(text)) return "fitness"
   if (/prefer|like|choice/.test(text)) return "preferences"
   return "context"
@@ -229,6 +230,7 @@ export function createSchemaPacket(group = [], options = {}) {
   const schemaType = options.schemaType || inferSchemaType(records[0] || {})
   const confidence = round(records.reduce((sum, record) => sum + Number(record.meaningful_score || 0.5), 0) / Math.max(1, records.length))
   const readingAttributes = schemaType === "reading_preferences" ? buildReadingAttributes(records) : {}
+  const productivityAttributes = schemaType === "productivity" ? buildProductivityAttributes(records) : {}
   return {
     schema_version: "memact.schema_packet.v0",
     packet_id: `schema_${slug(`${category}_${schemaType}_${records.length}`)}`,
@@ -239,11 +241,99 @@ export function createSchemaPacket(group = [], options = {}) {
     attributes: {
       record_count: records.length,
       themes: unique(records.flatMap((record) => record.canonical_themes || [])),
-      ...readingAttributes
+      ...readingAttributes,
+      ...productivityAttributes
     },
     sources: records.flatMap((record) => record.sources || []),
     created_at: new Date().toISOString()
   }
+}
+
+export function shapeContextProposal(input = {}, options = {}) {
+  const submission = normalizeContextInput(input)
+  const category = submission.category || options.category || "general"
+  const sourceTrail = buildContextSourceTrail(submission)
+  const confidence = submission.kind === "raw_signal" ? 0.35 : sourceTrail.length ? 0.7 : 0.55
+  const context = submission.kind === "raw_signal"
+    ? contextFromSignal(submission)
+    : sanitizeContextObject(submission.context || submission.value || {})
+
+  return {
+    schema_version: "memact.context_proposal.v0",
+    input_kind: submission.kind,
+    category,
+    title: String(submission.title || context.title || `Possible ${category} context`).trim().slice(0, 160),
+    context,
+    confidence: round(Number(submission.confidence ?? confidence)),
+    status: "pending",
+    visibility: "private",
+    user_action_required: true,
+    source_trail: sourceTrail,
+    guardrails: [
+      "Activity is not identity.",
+      "User must be able to accept, edit, reject, or delete this before it becomes memory.",
+      "Do not expose raw private data by default."
+    ],
+    created_at: new Date().toISOString()
+  }
+}
+
+export function shapeContextProposals(inputs = [], options = {}) {
+  return (Array.isArray(inputs) ? inputs : [inputs]).map((input) => shapeContextProposal(input, options))
+}
+
+function normalizeContextInput(input = {}) {
+  const raw = input.raw_signal || input.signal || input.activity_signal
+  if (raw && typeof raw === "object") {
+    return {
+      ...raw,
+      kind: "raw_signal",
+      category: raw.category || input.category
+    }
+  }
+  return {
+    ...input,
+    kind: input.kind || input.input_kind || "context_proposal"
+  }
+}
+
+function contextFromSignal(signal = {}) {
+  const eventType = String(signal.event_type || signal.type || "activity").slice(0, 80)
+  const category = String(signal.category || "general").slice(0, 80)
+  return {
+    title: `Possible ${category} context`,
+    summary: `Raw ${eventType} signal needs review before it becomes memory.`,
+    signal_type: eventType,
+    evidence: sanitizeContextObject(signal.payload || signal.evidence || {}),
+    review_note: "Activity is not identity. Treat this as weak evidence until the user accepts or edits it."
+  }
+}
+
+function buildContextSourceTrail(input = {}) {
+  if (Array.isArray(input.source_trail)) return input.source_trail.slice(0, 20).map(sanitizeContextObject)
+  if (input.kind === "raw_signal") {
+    return [{
+      type: "raw_signal",
+      event_type: String(input.event_type || input.type || "activity").slice(0, 80),
+      evidence: sanitizeContextObject(input.payload || input.evidence || {})
+    }]
+  }
+  if (input.evidence) return [{ type: "app_evidence", evidence: sanitizeContextValue(input.evidence) }]
+  return []
+}
+
+function sanitizeContextObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !/password|secret|token|api[_-]?key|credential|otp/i.test(key))
+    .map(([key, item]) => [String(key).slice(0, 80), sanitizeContextValue(item)]))
+}
+
+function sanitizeContextValue(value) {
+  if (value === null || value === undefined) return value
+  if (Array.isArray(value)) return value.slice(0, 50).map(sanitizeContextValue)
+  if (typeof value === "object") return sanitizeContextObject(value)
+  return String(value).slice(0, 1000)
 }
 
 function inferSubSchema(records = []) {
@@ -257,6 +347,8 @@ function inferSubSchema(records = []) {
   if (/source|citation|reference/.test(text)) return "sources"
   if (/task|todo|deadline/.test(text)) return "tasks"
   if (/focus|interrupt|overload/.test(text)) return "attention_load"
+  const productivitySubSchema = inferProductivitySubSchema(text)
+  if (productivitySubSchema) return productivitySubSchema
   return "general"
 }
 
@@ -502,14 +594,14 @@ function profileRecord(record) {
 function inferRecordCategory(record = {}) {
   const text = `${record.category || ""} ${record.source_label || ""} ${record.evidence?.title || ""} ${(record.canonical_themes || []).join(" ")}`.toLowerCase()
   if (/reading|article|summary|scroll|finish/.test(text)) return "reading"
-  if (/shop|commerce|product|discount|price/.test(text)) return "shopping"
+  if (/\b(shopping|shop|commerce|product|products|discount|price)\b/.test(text)) return "shopping"
   if (/learn|study|tutorial|course/.test(text)) return "learning"
   if (/research|paper|source|documentation|api/.test(text)) return "research"
   if (/focus|attention|load/.test(text)) return "attention"
   if (/video|audio|media/.test(text)) return "media"
   if (/code|developer|debug|github/.test(text)) return "developer_work"
   if (/assistant|chat/.test(text)) return "ai_assistant_usage"
-  if (/task|work|doc/.test(text)) return "productivity"
+  if (/\b(productivity|task|tasks|work|doc|docs)\b/.test(text)) return "productivity"
   if (/fitness|workout|nutrition|diet|exercise/.test(text)) return "fitness"
   if (/prefer|like|choice/.test(text)) return "preferences"
   return "general"
