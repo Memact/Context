@@ -112,6 +112,10 @@ Current exports include:
 
 - `shapeContextProposal(input, options)`
 - `shapeContextProposals(inputs, options)`
+- `matchContextFields(requestedContext, memoryRecords, options)`
+- `LocalContextMatcher`
+- `suggestContextGoal(input)`
+- `buildMissingContextFields(goalInput, acceptedEntries)`
 - `formSchemaPackets(records, options)`
 - `groupByCategory(records)`
 - `inferSchemaType(record)`
@@ -119,6 +123,17 @@ Current exports include:
 
 `shapeContextProposal` is the current product-facing path. The schema-packet
 functions remain for compatibility while older contributor work is migrated.
+
+`LocalContextMatcher` is the first fallback matcher for CAP. It uses normalized
+field-path similarity, keyword overlap, and small eval examples. It does not
+call any cloud model. Later local embeddings can plug into the same matcher
+shape without changing Access or Memory permissions.
+
+`buildMissingContextFields` is the first blank-slate helper. A user can say what
+they are trying to do, such as buying a laptop or setting up fitness basics, and
+Context returns the useful fields Memact already has plus the fields still
+missing. Website can render this as a user-facing prompt, while apps still only
+receive approved context through Access.
 
 Do not treat Capture or Inference as current core product language. New work should prefer app category context rules and Wiki entry outputs.
 

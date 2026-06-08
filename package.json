@@ -8,6 +8,8 @@
   "main": "./src/engine.mjs",
   "exports": {
     ".": "./src/engine.mjs",
+    "./context-matcher": "./src/context-matcher.mjs",
+    "./context-goals": "./src/context-goals.mjs",
     "./lifecycle": "./src/lifecycle.mjs",
     "./cli": "./src/cli.mjs"
   },
@@ -35,7 +37,7 @@
   },
   "scripts": {
     "check": "node ./scripts/check.mjs",
-    "test": "node test/schema-packets.test.mjs && node test/news-articles.test.mjs && node test/ai-assistants.test.mjs && node test/categories/fitness.test.mjs && node test/categories/learning.test.mjs",
+    "test": "node test/schema-packets.test.mjs && node test/context-matcher.test.mjs && node test/context-goals.test.mjs && node test/news-articles.test.mjs && node test/ai-assistants.test.mjs && node test/categories/fitness.test.mjs",
     "context": "node ./src/cli.mjs",
     "schema": "node ./src/cli.mjs",
     "sample": "node ./src/cli.mjs --input examples/sample-inference-output.json --format report",
