@@ -18,7 +18,7 @@ Older snapshots and tagged releases are not guaranteed to receive backports.
 
 Report vulnerabilities by emailing the maintainer directly:
 
-> **security contact:** `REPLACE_WITH_MAINTAINER_EMAIL@example.com`
+> **security contact:** `Keepsloading@gmail.com`
 
 Please include:
 
