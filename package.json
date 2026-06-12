@@ -41,6 +41,12 @@
     "context": "node ./src/cli.mjs",
     "schema": "node ./src/cli.mjs",
     "sample": "node ./src/cli.mjs --input examples/sample-inference-output.json --format report",
-    "sample:json": "node ./src/cli.mjs --input examples/sample-inference-output.json --format json"
+    "sample:json": "node ./src/cli.mjs --input examples/sample-inference-output.json --format json",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.0.2",
+    "@commitlint/config-conventional": "^21.0.2",
+    "husky": "^9.1.7"
   }
 }
