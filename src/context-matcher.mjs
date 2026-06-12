@@ -25,6 +25,67 @@ export const contextMatchingExamples = Object.freeze([
     app_field: "budget range",
     memact_fields: ["shopping.budget"],
     reason: "Budget range maps to accepted shopping budget memory."
+  },
+  // Expanded synonyms
+  {
+    app_field: "dietary preferences",
+    memact_fields: ["diet.preference"],
+    reason: "Dietary preferences map to diet.preference memory."
+  },
+  {
+    app_field: "dietary restrictions",
+    memact_fields: ["diet.allergy"],
+    reason: "Dietary restrictions map to diet.allergy memory."
+  },
+  {
+    app_field: "food allergies",
+    memact_fields: ["diet.allergy"],
+    reason: "Food allergies map to diet.allergy memory."
+  },
+  {
+    app_field: "workout setup",
+    memact_fields: ["fitness.goal"],
+    reason: "Workout setup maps to fitness.goal memory."
+  },
+  {
+    app_field: "fitness objective",
+    memact_fields: ["fitness.goal"],
+    reason: "Fitness objective maps to fitness.goal memory."
+  },
+  {
+    app_field: "learning style",
+    memact_fields: ["learning.study_style"],
+    reason: "Learning style maps to learning.study_style memory."
+  },
+  {
+    app_field: "study schedule",
+    memact_fields: ["learning.schedule"],
+    reason: "Study schedule maps to learning.schedule memory."
+  },
+  {
+    app_field: "display name",
+    memact_fields: ["identity.preferred_name"],
+    reason: "Display name maps to identity.preferred_name memory."
+  },
+  {
+    app_field: "username",
+    memact_fields: ["identity.preferred_username"],
+    reason: "Username maps to identity.preferred_username memory."
+  },
+  {
+    app_field: "laptop budget",
+    memact_fields: ["shopping.laptop.budget"],
+    reason: "Laptop budget maps to shopping.laptop.budget memory."
+  },
+  {
+    app_field: "purchase budget",
+    memact_fields: ["shopping.budget"],
+    reason: "Purchase budget maps to shopping.budget memory."
+  },
+  {
+    app_field: "budget limit",
+    memact_fields: ["shopping.budget"],
+    reason: "Budget limit maps to shopping.budget memory."
   }
 ])
 
@@ -86,7 +147,19 @@ function scoreMemory(requestTokens, synonymFields, memory = {}) {
   const candidateTokens = tokens(searchable)
   let overlap = 0
   for (const token of requestTokens) {
-    if (candidateTokens.has(token)) overlap += 1
+    if (candidateTokens.has(token)) {
+      overlap += 1
+    } else {
+      // Fuzzy match checkpoint: check if similar token exists in candidate
+      let bestFuzzy = 0
+      for (const candToken of candidateTokens) {
+        const sim = jaroWinkler(token, candToken)
+        if (sim > bestFuzzy) bestFuzzy = sim
+      }
+      if (bestFuzzy >= 0.85) {
+        overlap += bestFuzzy
+      }
+    }
   }
   const lexical = requestTokens.size ? overlap / requestTokens.size : 0
   const fieldPathSimilarity = pathSimilarity(fieldPath, [...requestTokens].join("."))
@@ -113,18 +186,106 @@ function normalize(value) {
 }
 
 function tokens(value) {
-  return new Set(normalize(value).split(/\s+/).filter((token) => token.length >= 3 && !STOP_WORDS.has(token)))
+  const rawTokens = normalize(value).split(/[.\s_-]+/).filter((token) => token.length >= 3 && !STOP_WORDS.has(token))
+  return new Set(rawTokens.map((t) => stem(t)))
 }
 
 function pathSimilarity(left = "", right = "") {
-  const leftParts = String(left).toLowerCase().split(/[.\s_-]+/).filter(Boolean)
-  const rightParts = String(right).toLowerCase().split(/[.\s_-]+/).filter(Boolean)
+  const leftParts = String(left).toLowerCase().split(/[.\s_-]+/).filter(Boolean).map((p) => stem(p))
+  const rightParts = String(right).toLowerCase().split(/[.\s_-]+/).filter(Boolean).map((p) => stem(p))
   if (!leftParts.length || !rightParts.length) return 0
   const rightSet = new Set(rightParts)
-  const overlap = leftParts.filter((part) => rightSet.has(part)).length
+  let overlap = 0
+  for (const part of leftParts) {
+    if (rightSet.has(part)) {
+      overlap += 1
+    } else {
+      // Fuzzy match path part
+      let bestFuzzy = 0
+      for (const rPart of rightParts) {
+        const sim = jaroWinkler(part, rPart)
+        if (sim > bestFuzzy) bestFuzzy = sim
+      }
+      if (bestFuzzy >= 0.85) {
+        overlap += bestFuzzy
+      }
+    }
+  }
   return overlap / Math.max(leftParts.length, rightParts.length)
 }
 
 function round(value) {
   return Number(Math.max(0, Math.min(1, value)).toFixed(3))
+}
+
+export function stem(word) {
+  if (typeof word !== "string") return ""
+  let w = word.toLowerCase().trim()
+  if (w.length <= 3) return w
+  if (w.endsWith("ies")) return w.slice(0, -3) + "y"
+  if (w.endsWith("ing")) return w.slice(0, -3)
+  if (w.endsWith("s") && !w.endsWith("ss") && !w.endsWith("us") && !w.endsWith("is") && !w.endsWith("as")) {
+    if (w.endsWith("es")) {
+      if (w.endsWith("ses") || w.endsWith("xes") || w.endsWith("ches") || w.endsWith("shes")) {
+        return w.slice(0, -2)
+      }
+      return w.slice(0, -1)
+    }
+    return w.slice(0, -1)
+  }
+  return w
+}
+
+export function jaroWinkler(s1, s2) {
+  s1 = s1.toLowerCase().trim()
+  s2 = s2.toLowerCase().trim()
+  if (s1 === s2) return 1.0
+  
+  const len1 = s1.length
+  const len2 = s2.length
+  if (len1 === 0 || len2 === 0) return 0.0
+
+  const matchWindow = Math.max(0, Math.floor(Math.max(len1, len2) / 2) - 1)
+  const matches1 = new Array(len1).fill(false)
+  const matches2 = new Array(len2).fill(false)
+
+  let matches = 0
+  for (let i = 0; i < len1; i++) {
+    const start = Math.max(0, i - matchWindow)
+    const end = Math.min(len2 - 1, i + matchWindow)
+    for (let j = start; j <= end; j++) {
+      if (!matches2[j] && s1[i] === s2[j]) {
+        matches1[i] = true
+        matches2[j] = true
+        matches++
+        break
+      }
+    }
+  }
+
+  if (matches === 0) return 0.0
+
+  let transpositions = 0
+  let k = 0
+  for (let i = 0; i < len1; i++) {
+    if (matches1[i]) {
+      while (!matches2[k]) k++
+      if (s1[i] !== s2[k]) transpositions++
+      k++
+    }
+  }
+
+  const jaro = (matches / len1 + matches / len2 + (matches - transpositions / 2) / matches) / 3
+
+  const prefixLimit = 4
+  let commonPrefix = 0
+  for (let i = 0; i < Math.min(prefixLimit, len1, len2); i++) {
+    if (s1[i] === s2[i]) {
+      commonPrefix++
+    } else {
+      break
+    }
+  }
+
+  return jaro + commonPrefix * 0.1 * (1 - jaro)
 }
