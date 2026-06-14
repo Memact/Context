@@ -145,6 +145,68 @@ receive approved context through Access.
 
 Do not treat Capture or Inference as current core product language. New work should prefer app category context rules and Wiki entry outputs.
 
+## Writing Good Commits
+
+All contributions must use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
+
+Format:
+
+```
+<type>(<scope>): <short summary>
+```
+
+### Types
+
+| Type       | Use for                                    |
+| ---------- | ------------------------------------------ |
+| `feat`     | New category, field, rule, or test         |
+| `fix`      | Broken rule, wrong normalization, bad test |
+| `chore`    | Tooling, deps, config                      |
+| `docs`     | README, MEMACT.md, Wiki templates          |
+| `refactor` | Restructure without behavior change        |
+| `test`     | Tests only                                 |
+
+### Good commits
+
+```
+feat(shopping): add repeated-purchase normalization rule
+```
+
+```
+fix(fitness): correct confidence threshold for one-off activity
+```
+
+```
+docs(learning): add Wiki entry template for course completion
+```
+
+### Bad commits
+
+```
+update stuff
+```
+
+```
+fixed
+```
+
+```
+WIP shopping category changes added also fixed a bug in fitness and updated readme
+```
+
+Bad commits make review harder, break changelog generation, and lose context for future contributors.
+
+### Rules
+
+- Summary line: imperative mood, lowercase after colon, no period, max 72 chars
+- Scope: the category folder or module name (`shopping`, `fitness`, `matcher`)
+- Breaking changes: add `!` after type/scope and a `BREAKING CHANGE:` footer
+
+### References
+
+- [Conventional Commits spec](https://www.conventionalcommits.org/en/v1.0.0/)
+- [Conventional Commits cheatsheet](https://gist.github.com/qoomon/5dfcdf8eec66a051ecd85625518cfd13)
+
 ## Development
 
 ```powershell
