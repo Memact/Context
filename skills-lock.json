@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "skills": {
+    "conventional-commit": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/conventional-commit/SKILL.md",
+      "computedHash": "f29c9486cede6c7b2df0cfb0a2e4aa67446552b991bcf17d1b309e903171f03d"
+    },
+    "flaky-test-detective": {
+      "source": "patricio0312rev/skills",
+      "sourceType": "github",
+      "skillPath": "testing/flaky-test-detective/SKILL.md",
+      "computedHash": "4c22ba1e0949b6bc7a77657e0585058f34f26a396d08b21b07e07447bb46ff23"
+    },
+    "git-hygiene-enforcer": {
+      "source": "patricio0312rev/skills",
+      "sourceType": "github",
+      "skillPath": "foundation/git-hygiene-enforcer/SKILL.md",
+      "computedHash": "022f95be831ea7635bf2c435193f6d534bf8ebf1ce90a47bee0d8f266f824607"
+    },
+    "javascript-testing-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/javascript-typescript/skills/javascript-testing-patterns/SKILL.md",
+      "computedHash": "325957f63862a4ef54726b34d3cfad105a918fcdcf6d08e11dc8d803dbd2a7a0"
+    },
+    "jsdoc-typescript-docs": {
+      "source": "patricio0312rev/skills",
+      "sourceType": "github",
+      "skillPath": "foundation/jsdoc-typescript-docs/SKILL.md",
+      "computedHash": "96505a4a52e2cc4b14c942b6a8df66352c960cb5b3c27a26d45e0ea461910e14"
+    },
+    "modern-javascript-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/javascript-typescript/skills/modern-javascript-patterns/SKILL.md",
+      "computedHash": "0d820adbeaa73ee1f6b1e075fb3ef1698d5d68ad59cb30fc935c857025e9b24f"
+    },
+    "node": {
+      "source": "mcollina/skills",
+      "sourceType": "github",
+      "skillPath": "skills/node/SKILL.md",
+      "computedHash": "c92b3da4a4ea153207eb72d8f6a77c0e9f7b98d29f5092433143195d154d58c9"
+    }
+  }
+}
