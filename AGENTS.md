@@ -57,7 +57,7 @@ Each exports: `normalizeActivity()` shape, `contextFields`, `generateWikiEntries
 ### Tests (`test/`)
 Node built-in `node:test` + `node:assert/strict`. Plain `.test.mjs` files run directly with `node`.
 
-- 4 top-level tests: schema-packets, context-matcher, context-goals, news-articles, ai-assistants
+- 7 top-level tests: schema-packets, context-matcher, context-goals, news-articles, ai-assistants, creator-tools, food-delivery
 - 4 category tests under `test/categories/`: fitness, learning, shopping, movie-booking
 - `npm test` uses `&&` — stops on first failure (no test runner parallelism)
 
