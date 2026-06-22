@@ -3,7 +3,7 @@
  */
 import assert from 'node:assert';
 import { test, describe } from 'node:test';
-import { newsReadingCategory } from '../src/categories/news-reading.mjs';
+import { newsReadingCategory } from '../../src/categories/news-reading.mjs';
 
 describe('News-Reading Category Schema', () => {
 

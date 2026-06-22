@@ -37,7 +37,7 @@
   },
   "scripts": {
     "check": "node ./scripts/check.mjs",
-    "test": "node test/schema-packets.test.mjs && node test/context-matcher.test.mjs && node test/context-goals.test.mjs && node test/news-articles.test.mjs && node test/ai-assistants.test.mjs && node test/creator-tools.test.mjs && node test/food-delivery.test.mjs && node test/categories/fitness.test.mjs && node test/categories/learning.test.mjs && node test/categories/shopping.test.mjs && node test/categories/movie-booking.test.mjs && node test/categories/travel.test.mjs && node test/categories/video-streaming.test.mjs",
+    "test": "node test/schema-packets.test.mjs && node test/context-matcher.test.mjs && node test/context-goals.test.mjs && node test/news-articles.test.mjs && node test/ai-assistants.test.mjs && node test/creator-tools.test.mjs && node test/food-delivery.test.mjs && node test/categories/fitness.test.mjs && node test/categories/learning.test.mjs && node test/categories/shopping.test.mjs && node test/categories/movie-booking.test.mjs && node test/categories/travel.test.mjs && node test/categories/video-streaming.test.mjs && node test/categories/news-reading.test.mjs",
     "context": "node ./src/cli.mjs",
     "schema": "node ./src/cli.mjs",
     "sample": "node ./src/cli.mjs --input examples/sample-inference-output.json --format report",
