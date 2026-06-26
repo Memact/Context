@@ -68,3 +68,36 @@ test("context matcher utilizes expanded synonym mappings", () => {
   assert.equal(result2[0].candidates[0].memory.field_path, "shopping.laptop.budget")
 })
 
+test("context matcher injects sensitivity and approval flags based on prefix namespaces", () => {
+  const result = matchContextFields([
+    { description: "user preferences profile configuration" }
+  ], [
+    { field_path: "identity.preferred_name", value: "Alex", category: "identity" },
+    { field_path: "diet.allergy", value: "Peanuts", category: "diet" },
+    { field_path: "shopping.budget", value: "Medium", category: "shopping" }
+  ])
+
+  // Extract the graded candidates from the test run matches
+  const candidates = result[0].candidates;
+
+  const identityCandidate = candidates.find(c => c.memory.field_path === "identity.preferred_name");
+  const allergyCandidate = candidates.find(c => c.memory.field_path === "diet.allergy");
+  const shoppingCandidate = candidates.find(c => c.memory.field_path === "shopping.budget");
+
+  // Verify High Sensitivity / Verification Tiers
+  if (identityCandidate) {
+    assert.equal(identityCandidate.sensitivity, "high");
+    assert.equal(identityCandidate.requires_approval, true);
+  }
+
+  if (allergyCandidate) {
+    assert.equal(allergyCandidate.sensitivity, "high");
+    assert.equal(allergyCandidate.requires_approval, true);
+  }
+
+  // Verify Low Sensitivity / Automatic Bypass Tiers
+  if (shoppingCandidate) {
+    assert.equal(shoppingCandidate.sensitivity, "low");
+    assert.equal(shoppingCandidate.requires_approval, false);
+  }
+})

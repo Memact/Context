@@ -1,4 +1,5 @@
 const STOP_WORDS = new Set(["a", "an", "and", "app", "can", "for", "from", "get", "of", "the", "to", "use", "user", "with"])
+const HIGH_SENSITIVITY_PREFIXES = ["identity", "diet.allergy"];
 
 export const contextMatchingExamples = Object.freeze([
   {
@@ -313,10 +314,19 @@ function scoreMemory(requestTokens, synonymFields, memory = {}) {
   if (synonymBoost) reasons.push("example mapping")
   if (lexical) reasons.push("keyword overlap")
   if (fieldPathSimilarity) reasons.push("field path similarity")
+
+  const isHighSensitivity = HIGH_SENSITIVITY_PREFIXES.some(prefix => 
+    fieldPath.startsWith(prefix)
+  );
+
+  const sensitivity = isHighSensitivity ? "high" : "low";
+
   return {
     memory,
     score,
-    reasons: reasons.length ? reasons : ["weak fallback match"]
+    reasons: reasons.length ? reasons : ["weak fallback match"],
+    sensitivity,
+    requires_approval: sensitivity === "high" 
   }
 }
 
