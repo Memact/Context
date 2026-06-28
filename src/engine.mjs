@@ -253,6 +253,7 @@ export function inferSchemaType(record = {}) {
   if (/assistant|chat/.test(text)) return "ai_assistant_usage"
   if (/\b(productivity|task|tasks|work|doc|docs)\b/.test(text)) return "productivity"
   if (/fitness|workout|nutrition|diet|exercise/.test(text)) return "fitness"
+  if (/\b(language|spanish|japanese|french|german|duolingo|vocabulary|fluent)\b/.test(text)) return "language_learning_preferences"
   if (/\b(game|gaming|play|rpg|mmo|console|steam|xbox|playstation)\b/.test(text)) return "gaming_preferences"
   if (/\b(smart home|thermostat|lighting|automation|bulb|temperature)\b/.test(text)) return "smart_home_preferences"
   if (/prefer|like|choice/.test(text)) return "preferences"
@@ -716,6 +717,7 @@ function inferRecordCategory(record = {}) {
   if (/\b(game|gaming|play|rpg|mmo|console|steam|xbox|playstation)\b/.test(text)) return "gaming"
   if (/\b(smart home|thermostat|lighting|automation|bulb|temperature)\b/.test(text)) return "smart_home"
   if (/prefer|like|choice/.test(text)) return "preferences"
+  if (/\b(language|spanish|japanese|french|german|duolingo|vocabulary|fluent)\b/.test(text)) return "language_learning"
   return "general"
 }
 
