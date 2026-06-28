@@ -1,37 +1,59 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { normalizeTravelContext } from "../../src/categories/travel.mjs";
+import assert from 'assert';
+import { normalizeTravelContext, generateUserReadableSuggestion } from '../../src/categories/travel.mjs';
 
-test("travel - explicit preferences preserve non-sensitive fields", () => {
-  const rawInput = {
-    source: "ExpediaApp",
-    type: "preference",
-    explicit: true,
-    data: {
-      tripStyle: "backpacking",
-      preferredStayType: "hostel"
-    }
-  };
+describe('Travel Category Normalization', () => {
+  
+  it('should treat one-off activities as weak observations (Activity != Identity)', () => {
+    // Example Raw App Context Dump: User searched for a hotel in Paris
+    const rawActivity = {
+      source: 'booking_app',
+      type: 'activity',
+      data: {
+        destination: 'Paris',
+        preferredStayType: 'hotel'
+      }
+    };
 
-  const result = normalizeTravelContext(rawInput);
-  assert.equal(result.category, "travel");
-  assert.equal(result.confidence, "high");
-  assert.equal(result.visibility, "private");
-  assert.equal(result.preferences.tripStyle, "backpacking");
-});
+    const normalized = normalizeTravelContext(rawActivity);
 
-test("travel - rejects or filters out risky GPS data", () => {
-  const rawInput = {
-    source: "GreedyMapApp",
-    type: "activity",
-    explicit: false,
-    data: {
-      current_gps: "48.8566, 2.3522",
-      destination: "Paris"
-    }
-  };
+    assert.strictEqual(normalized.observation_type, 'weak_observation');
+    assert.strictEqual(normalized.is_identity_claim, false);
+    assert.strictEqual(normalized.visibility, 'private');
+    assert.strictEqual(normalized.needs_review, true);
+    assert.match(normalized.suggestion, /Save this as your travel preference/);
+  });
 
-  const result = normalizeTravelContext(rawInput);
-  assert.equal(result.status, "rejected");
-  assert.equal(result.preciseLocation, undefined);
+  it('should drop sensitive data like exact GPS without explicit consent', () => {
+    const rawSensitiveData = {
+      source: 'maps_app',
+      type: 'activity',
+      data: {
+        current_gps: '48.8566, 2.3522',
+        destination: 'Paris'
+      }
+    };
+
+    const normalized = normalizeTravelContext(rawSensitiveData);
+
+    assert.strictEqual(normalized.status, 'rejected');
+    assert.match(normalized.reason, /Sensitive location tracking/);
+  });
+
+  it('should handle durable preferences correctly', () => {
+    const rawPreference = {
+      source: 'travel_profile',
+      type: 'preference',
+      explicit: true,
+      data: {
+        tripStyle: 'adventure',
+        budgetRangeSignal: 'mid-range'
+      }
+    };
+
+    const normalized = normalizeTravelContext(rawPreference);
+
+    assert.strictEqual(normalized.observation_type, 'explicit_preference');
+    assert.strictEqual(normalized.is_identity_claim, true);
+    assert.strictEqual(normalized.preferences.tripStyle, 'adventure');
+  });
 });

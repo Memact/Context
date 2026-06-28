@@ -262,12 +262,15 @@ export function createContextMatcher(options = {}) {
 
 export function matchContextFields(requestedContext = [], memoryRecords = [], options = {}) {
   const threshold = Number(options.threshold ?? 0.12)
+  const requestedCategory = options.requestedCategory || null; // NEW
+
   return (Array.isArray(requestedContext) ? requestedContext : []).map((requestedItem) => {
     const requestText = requestToText(requestedItem)
     const requestTokens = tokens(requestText)
     const synonymFields = SYNONYM_FIELDS[normalize(requestText)] || SYNONYM_FIELDS[normalize(requestedItem?.description)] || []
     const candidates = (Array.isArray(memoryRecords) ? memoryRecords : [])
-      .map((memory) => scoreMemory(requestTokens, synonymFields, memory))
+      // Pass requestedCategory downwards
+      .map((memory) => scoreMemory(requestTokens, synonymFields, memory, requestedCategory))
       .filter((candidate) => candidate.score >= threshold)
       .sort((left, right) => right.score - left.score || String(left.memory.field_path || "").localeCompare(String(right.memory.field_path || "")))
     return {
@@ -278,7 +281,7 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
   })
 }
 
-function scoreMemory(requestTokens, synonymFields, memory = {}) {
+function scoreMemory(requestTokens, synonymFields, memory = {}, requestedCategory = null) {
   const fieldPath = String(memory.field_path || memory.path || "")
   const searchable = [
     fieldPath,
@@ -295,7 +298,6 @@ function scoreMemory(requestTokens, synonymFields, memory = {}) {
     if (candidateTokens.has(token)) {
       overlap += 1
     } else {
-      // Fuzzy match checkpoint: check if similar token exists in candidate
       let bestFuzzy = 0
       for (const candToken of candidateTokens) {
         const sim = jaroWinkler(token, candToken)
@@ -306,14 +308,37 @@ function scoreMemory(requestTokens, synonymFields, memory = {}) {
       }
     }
   }
+
   const lexical = requestTokens.size ? overlap / requestTokens.size : 0
   const fieldPathSimilarity = pathSimilarity(fieldPath, [...requestTokens].join("."))
   const synonymBoost = synonymFields.includes(fieldPath) ? 0.78 : 0
-  const score = round(Math.max(lexical, fieldPathSimilarity, synonymBoost))
+  
+ 
+  // Allow schemas to define cross-domain relevance vectors
+  let crossDomainRelevance = 0;
+  let relevanceReasons = [];
+
+  if (memory.relevance_vectors && requestedCategory) {
+     if (memory.relevance_vectors[requestedCategory]) {
+       crossDomainRelevance = memory.relevance_vectors[requestedCategory];
+       relevanceReasons.push(`Dynamic relevance to ${requestedCategory}: ${crossDomainRelevance}`);
+     }
+  } else if (requestedCategory && requestedCategory !== memory.category) {
+    // If no explicit vector is provided, create a soft baseline based on lexical cross-match
+    if (lexical > 0.4) {
+      crossDomainRelevance = lexical * 0.5; // Cap cross-domain raw match
+      relevanceReasons.push(`Soft semantic relevance to ${requestedCategory}`);
+    }
+  }
+
+  // Calculate final score using the highest available signal
+  const score = round(Math.max(lexical, fieldPathSimilarity, synonymBoost, crossDomainRelevance))
+  
   const reasons = []
   if (synonymBoost) reasons.push("example mapping")
   if (lexical) reasons.push("keyword overlap")
   if (fieldPathSimilarity) reasons.push("field path similarity")
+  if (crossDomainRelevance > 0) reasons.push(...relevanceReasons)
 
   const isHighSensitivity = HIGH_SENSITIVITY_PREFIXES.some(prefix => 
     fieldPath.startsWith(prefix)

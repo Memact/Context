@@ -72,3 +72,87 @@ export function schemaLifecycleLabel(state) {
   };
   return labels[state] || labels[SCHEMA_LIFECYCLE_STATES.EMERGING];
 }
+// --- Claim Lifecycle Expansion  ---
+
+export const CLAIM_LIFECYCLE_STATES = Object.freeze({
+  PENDING: "pending",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+  HIDDEN: "hidden",
+  ARCHIVED: "archived",
+  DELETED: "deleted" // Soft-delete
+});
+
+export const CLAIM_VISIBILITY = Object.freeze({
+  PRIVATE: "private",
+  SHARED: "shared"
+});
+
+export function transitionClaimState(claim = {}, action = "", options = {}) {
+  const currentStatus = claim.status || CLAIM_LIFECYCLE_STATES.PENDING;
+  const currentVisibility = claim.visibility || CLAIM_VISIBILITY.PRIVATE;
+  
+  let nextStatus = currentStatus;
+  let nextVisibility = currentVisibility;
+  let revokedAt = claim.revoked_at || null;
+
+  switch (action.trim().toLowerCase()) {
+    case "approve":
+      nextStatus = CLAIM_LIFECYCLE_STATES.APPROVED;
+      nextVisibility = CLAIM_VISIBILITY.SHARED;
+      revokedAt = null;
+      break;
+    case "reject":
+      nextStatus = CLAIM_LIFECYCLE_STATES.REJECTED;
+      nextVisibility = CLAIM_VISIBILITY.PRIVATE;
+      revokedAt = new Date().toISOString();
+      break;
+    case "hide":
+      // Allows user to temporarily hide an approved claim from third-party apps
+      nextStatus = CLAIM_LIFECYCLE_STATES.HIDDEN;
+      nextVisibility = CLAIM_VISIBILITY.PRIVATE;
+      revokedAt = new Date().toISOString();
+      break;
+    case "unhide":
+      // Revert a hidden claim back to approved state
+      if (currentStatus === CLAIM_LIFECYCLE_STATES.HIDDEN) {
+        nextStatus = CLAIM_LIFECYCLE_STATES.APPROVED;
+        nextVisibility = CLAIM_VISIBILITY.SHARED;
+        revokedAt = null;
+      }
+      break;
+    case "edit":
+      // Edits usually bump status back to approved if it was pending or hidden
+      nextStatus = CLAIM_LIFECYCLE_STATES.APPROVED;
+      nextVisibility = CLAIM_VISIBILITY.SHARED;
+      revokedAt = null;
+      break;
+    case "delete":
+      // Soft-delete to retain a hash of the observation preventing re-suggestion
+      nextStatus = CLAIM_LIFECYCLE_STATES.DELETED;
+      nextVisibility = CLAIM_VISIBILITY.PRIVATE;
+      revokedAt = new Date().toISOString();
+      break;
+    default:
+      break;
+  }
+
+  return {
+    ...claim,
+    status: nextStatus,
+    visibility: nextVisibility,
+    revoked_at: revokedAt,
+    last_action: action.toLowerCase(),
+    updated_at: new Date().toISOString(),
+    lifecycle_history: [
+      ...(Array.isArray(claim.lifecycle_history) ? claim.lifecycle_history : []),
+      {
+        action: action.toLowerCase(),
+        from_status: currentStatus,
+        to_status: nextStatus,
+        occurred_at: new Date().toISOString(),
+        reason: options.reason || "user_action"
+      }
+    ]
+  };
+}
