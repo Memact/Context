@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { LocalContextMatcher, contextMatchingExamples, matchContextFields } from "../src/context-matcher.mjs"
+import { LocalContextMatcher, contextMatchingExamples, matchContextFields, rankContextNodes, CrossCategoryRelevanceRanker } from "../src/context-matcher.mjs"
 
 test("context matcher maps food restrictions to diet memory examples", () => {
   const result = matchContextFields([
@@ -134,4 +134,54 @@ test("context matcher adjusts threshold dynamically based on query specificity",
   )
   assert.equal(specificResult[0].candidates.length, 1, "Specific query should match near-match with low score")
   assert.equal(specificResult[0].candidates[0].memory.field_path, "shopping.budget")
+})
+
+test("cross-category relevance ranking engine ranks candidates globally", () => {
+  const memories = [
+    { field_path: "diet.preference", value: "vegan", category: "diet" },
+    { field_path: "shopping.budget", value: "low", category: "shopping" },
+    { field_path: "travel.destination", value: "Paris", category: "travel" },
+    { field_path: "learning.goal", value: "learn french", category: "learning" }
+  ]
+
+  // Query: "planning a trip to Paris on a low budget with vegan food"
+  const results = rankContextNodes(
+    "planning a trip to Paris on a low budget with vegan food",
+    memories
+  )
+
+  // Verify travel, shopping, and diet memories are returned, and learning is excluded
+  assert.ok(results.length >= 3, "Should match travel, shopping, and diet memories")
+  
+  const fieldPaths = results.map(r => r.memory.field_path)
+  assert.ok(fieldPaths.includes("travel.destination"))
+  assert.ok(fieldPaths.includes("shopping.budget"))
+  assert.ok(fieldPaths.includes("diet.preference"))
+  assert.ok(!fieldPaths.includes("learning.goal"), "Learning memory should be filtered out")
+
+  // Ensure they are sorted in descending order of score
+  for (let i = 0; i < results.length - 1; i++) {
+    assert.ok(results[i].score >= results[i + 1].score, "Results must be sorted descending by score")
+  }
+
+  // Verify using CrossCategoryRelevanceRanker class
+  const ranker = new CrossCategoryRelevanceRanker({ threshold: 0.15 })
+  const rankedResults = ranker.rank("planning a trip to Paris on a low budget with vegan food", memories)
+  assert.ok(rankedResults.length >= 3, "Ranker class should yield matching results")
+
+  // Verify custom weights
+  const weightedResults = rankContextNodes(
+    {
+      task: "planning a trip to Paris on a low budget with vegan food",
+      importance_weights: { "diet": 2.0, "travel.destination": 0.5 }
+    },
+    memories
+  )
+  
+  const dietResult = weightedResults.find(r => r.memory.field_path === "diet.preference")
+  const travelResult = weightedResults.find(r => r.memory.field_path === "travel.destination")
+  
+  if (dietResult && travelResult) {
+    assert.ok(dietResult.score > travelResult.score, "Diet memory should rank higher than travel memory due to weights")
+  }
 })

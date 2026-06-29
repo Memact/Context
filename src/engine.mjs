@@ -1,6 +1,6 @@
 import { resolveSchemaLifecycleState, schemaLifecycleLabel } from "./lifecycle.mjs";
 export { buildMissingContextFields, contextGoalTemplates, groupContextEntry, suggestContextGoal } from "./context-goals.mjs";
-export { LocalContextMatcher, SemanticContextMatcher, createContextMatcher, matchContextFields } from "./context-matcher.mjs";
+export { LocalContextMatcher, SemanticContextMatcher, createContextMatcher, matchContextFields, rankContextNodes, CrossCategoryRelevanceRanker } from "./context-matcher.mjs";
 
 const DEFAULT_MIN_SUPPORT = 3;
 const DEFAULT_MIN_MEANINGFUL_SCORE = 0.38;
