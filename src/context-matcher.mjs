@@ -261,13 +261,24 @@ export function createContextMatcher(options = {}) {
 }
 
 export function matchContextFields(requestedContext = [], memoryRecords = [], options = {}) {
-  const threshold = Number(options.threshold ?? 0.12)
+  const baseThreshold = Number(options.threshold ?? 0.12)
   const requestedCategory = options.requestedCategory || null; // NEW
 
   return (Array.isArray(requestedContext) ? requestedContext : []).map((requestedItem) => {
     const requestText = requestToText(requestedItem)
     const requestTokens = tokens(requestText)
-    const requestedCategory = requestedItem?.category || requestedItem?.category_hint || null
+    const itemCategory = requestedItem?.category || requestedItem?.category_hint || requestedCategory || null
+
+    // Dynamic Threshold Adjustment based on query specificity:
+    // - Broad query (<= 1 token): increase matching threshold by +0.08 to prevent irrelevant matches
+    // - Highly specific query (>= 3 tokens): decrease matching threshold by -0.05 to allow near-matches
+    // - Standard query (2 tokens): use base threshold
+    let itemThreshold = baseThreshold
+    if (requestTokens.size <= 1) {
+      itemThreshold = baseThreshold + 0.08
+    } else if (requestTokens.size >= 3) {
+      itemThreshold = Math.max(0.01, baseThreshold - 0.05)
+    }
     const synonymFields = SYNONYM_FIELDS[normalize(requestText)] || SYNONYM_FIELDS[normalize(requestedItem?.description)] || []
     
     const candidates = (Array.isArray(memoryRecords) ? memoryRecords : [])
@@ -276,9 +287,9 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
         const confidence = memory && typeof memory.confidence === "number" ? memory.confidence : 1.0
         return confidence >= 0.2
       })
-      // Pass requestedCategory downwards
-      .map((memory) => scoreMemory(requestTokens, synonymFields, memory, requestedCategory))
-      .filter((candidate) => candidate.score >= threshold)
+      // Pass itemCategory downwards
+      .map((memory) => scoreMemory(requestTokens, synonymFields, memory, itemCategory))
+      .filter((candidate) => candidate.score >= itemThreshold)
       .sort((left, right) => right.score - left.score || String(left.memory.field_path || "").localeCompare(String(right.memory.field_path || "")))
       
     return {
@@ -475,4 +486,128 @@ export function jaroWinkler(s1, s2) {
   }
 
   return jaro + commonPrefix * 0.1 * (1 - jaro)
+}
+
+export function rankContextNodes(taskContext, memoryRecords = [], options = {}) {
+  const taskText = typeof taskContext === "string" ? taskContext : (taskContext?.task || "")
+  const categoryHints = Array.isArray(taskContext?.category_hints) ? taskContext.category_hints : []
+  const weights = taskContext?.importance_weights || {}
+
+  const taskTokens = tokens(taskText)
+  
+  const inferredCategories = new Set(categoryHints)
+  const categoryKeywords = {
+    "food": ["food", "diet", "allergy", "restaurant", "dinner", "lunch", "meal", "eat", "cooking"],
+    "diet": ["diet", "preference", "allergy", "vegetarian", "vegan", "gluten", "food"],
+    "fitness": ["fitness", "workout", "gym", "exercise", "run", "training", "sports"],
+    "shopping": ["shopping", "budget", "buy", "purchase", "price", "spend", "store", "laptop"],
+    "learning": ["learning", "study", "course", "education", "tutorial", "exam"],
+    "identity": ["identity", "name", "username", "profile", "language", "timezone"],
+    "travel": ["travel", "trip", "location", "gps", "hotel", "flight", "destination"],
+    "sports": ["sports", "game", "play", "football", "basketball", "tennis"]
+  }
+
+  for (const [cat, keywords] of Object.entries(categoryKeywords)) {
+    for (const kw of keywords) {
+      if (taskTokens.has(stem(kw))) {
+        inferredCategories.add(cat)
+      }
+    }
+  }
+
+  const scored = (Array.isArray(memoryRecords) ? memoryRecords : []).map((memory) => {
+    const fieldPath = String(memory.field_path || memory.path || "")
+    const category = String(memory.category || "").toLowerCase()
+    
+    // 1. Lexical match score
+    const searchable = [
+      fieldPath,
+      category,
+      memory.label,
+      memory.title,
+      memory.summary,
+      memory.value,
+      ...(memory.themes || [])
+    ].join(" ")
+    const candidateTokens = tokens(searchable)
+    
+    let overlap = 0
+    for (const token of taskTokens) {
+      if (candidateTokens.has(token)) {
+        overlap += 1
+      } else {
+        let bestFuzzy = 0
+        for (const candToken of candidateTokens) {
+          const sim = jaroWinkler(token, candToken)
+          if (sim > bestFuzzy) bestFuzzy = sim
+        }
+        if (bestFuzzy >= 0.85) {
+          overlap += bestFuzzy
+        }
+      }
+    }
+    const lexicalScore = taskTokens.size ? overlap / taskTokens.size : 0
+
+    // 2. Category match boost
+    let categoryMatchScore = 0
+    if (inferredCategories.has(category)) {
+      categoryMatchScore = 0.5
+    } else {
+      const pathParts = fieldPath.split(".")
+      if (pathParts.some(part => inferredCategories.has(part))) {
+        categoryMatchScore = 0.4
+      }
+    }
+
+    // 3. Relevance Vectors check
+    let relevanceVectorScore = 0
+    if (memory.relevance_vectors) {
+      for (const activeCat of inferredCategories) {
+        if (memory.relevance_vectors[activeCat]) {
+          relevanceVectorScore = Math.max(relevanceVectorScore, memory.relevance_vectors[activeCat])
+        }
+      }
+    }
+
+    // 4. Custom Weight Boost
+    let customWeight = 1.0
+    if (weights[category]) {
+      customWeight = weights[category]
+    }
+    for (const [key, wt] of Object.entries(weights)) {
+      if (fieldPath.includes(key)) {
+        customWeight = Math.max(customWeight, wt)
+      }
+    }
+
+    const rawScore = Math.max(lexicalScore, categoryMatchScore, relevanceVectorScore) * customWeight
+    const score = Number(Math.max(0, Math.min(1, rawScore)).toFixed(3))
+
+    const reasons = []
+    if (lexicalScore > 0) reasons.push("lexical overlap")
+    if (categoryMatchScore > 0) reasons.push("category match")
+    if (relevanceVectorScore > 0) reasons.push("relevance vector mapping")
+    if (customWeight !== 1.0) reasons.push(`custom weight multiplier: ${customWeight}`)
+
+    return {
+      memory,
+      score,
+      reasons: reasons.length ? reasons : ["weak semantic fallback"]
+    }
+  })
+
+  const threshold = options.threshold ?? 0.10
+  return scored
+    .filter((candidate) => candidate.score >= threshold)
+    .sort((left, right) => right.score - left.score || String(left.memory.field_path || "").localeCompare(String(right.memory.field_path || "")))
+}
+
+export class CrossCategoryRelevanceRanker {
+  constructor(options = {}) {
+    this.threshold = options.threshold ?? 0.10
+  }
+
+  rank(taskContext, memoryRecords) {
+    return rankContextNodes(taskContext, memoryRecords, { threshold: this.threshold })
+  }
 }

@@ -1,3 +1,4 @@
+import { describe, it } from 'node:test';
 import assert from 'assert';
 import * as productivitySchema from '../../src/categories/productivity.mjs';
 
@@ -16,7 +17,7 @@ describe('Productivity Category Declarative Schema', () => {
   });
 
   it('should contain strict privacy rules for workplace data', () => {
-    assert.boolean(productivitySchema.sensitiveFieldRules.has('proprietary_code'), true);
-    assert.boolean(productivitySchema.sensitiveFieldRules.has('confidential_client_data'), true);
+    assert.strictEqual(productivitySchema.sensitiveFieldRules.has('proprietary_code'), true);
+    assert.strictEqual(productivitySchema.sensitiveFieldRules.has('confidential_client_data'), true);
   });
 });

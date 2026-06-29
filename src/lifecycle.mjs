@@ -150,8 +150,116 @@ export function transitionClaimState(claim = {}, action = "", options = {}) {
         action: action.toLowerCase(),
         from_status: currentStatus,
         to_status: nextStatus,
+        // Snapshot the full flag set on both sides so the transition can be
+        // reversed later without recomputing or corrupting the record.
+        from_visibility: currentVisibility,
+        to_visibility: nextVisibility,
+        from_revoked_at: claim.revoked_at || null,
+        to_revoked_at: revokedAt,
         occurred_at: new Date().toISOString(),
         reason: options.reason || "user_action"
+      }
+    ]
+  };
+}
+
+// --- Reversible Suggestion Status Rollback Machine ----------------------------
+// A state machine that walks backward through a claim's lifecycle_history,
+// reversing approval/rejection status and restoring previously recorded flags
+// (visibility, revocation) WITHOUT mutating or removing any historical entry.
+// Every rollback is itself appended to the log, so the record stays intact and
+// the machine can keep stepping backward (or a later rollback can undo it).
+
+const ROLLBACK_ACTION = "rollback";
+
+// Visibility/revocation derivable from status, used as a fallback for legacy
+// history entries that predate the per-transition flag snapshots.
+function deriveVisibilityForStatus(status) {
+  return status === CLAIM_LIFECYCLE_STATES.APPROVED ? CLAIM_VISIBILITY.SHARED : CLAIM_VISIBILITY.PRIVATE;
+}
+
+function isCreationEntry(entry) {
+  return !entry || entry.from_status === null || entry.from_status === undefined;
+}
+
+/**
+ * Replays the history into the stack of forward transitions that are still
+ * "live" — i.e. each rollback entry cancels the transitions it reversed. The
+ * top of the returned stack is the most recent change that can be undone.
+ */
+function liveTransitionStack(history = []) {
+  const stack = [];
+  for (const entry of history) {
+    if (isCreationEntry(entry)) continue; // creation is the floor, not reversible
+    if (entry.action === ROLLBACK_ACTION) {
+      const undone = Math.max(1, Number(entry.rolled_back_steps ?? 1));
+      for (let i = 0; i < undone && stack.length; i += 1) stack.pop();
+      continue;
+    }
+    stack.push(entry);
+  }
+  return stack;
+}
+
+/**
+ * How many forward status changes can still be rolled back on this claim.
+ */
+export function getClaimRollbackDepth(claim = {}) {
+  const history = Array.isArray(claim.lifecycle_history) ? claim.lifecycle_history : [];
+  return liveTransitionStack(history).length;
+}
+
+export function canRollbackClaim(claim = {}) {
+  return getClaimRollbackDepth(claim) > 0;
+}
+
+/**
+ * Walk the claim's status backward by `options.steps` live transitions
+ * (default 1), restoring the status and flags recorded before them. The
+ * historical log is preserved and a `rollback` entry is appended.
+ *
+ * @param {object} claim   The claim/suggestion to roll back.
+ * @param {object} options { steps?: number, reason?: string }
+ * @returns {object} A new claim object; unchanged if there is nothing to undo.
+ */
+export function rollbackClaimState(claim = {}, options = {}) {
+  const history = Array.isArray(claim.lifecycle_history) ? claim.lifecycle_history : [];
+  const stack = liveTransitionStack(history);
+  if (stack.length === 0) {
+    return claim; // only creation (or empty) — cannot roll back past it
+  }
+
+  const requested = Number.isFinite(Number(options.steps)) ? Math.trunc(Number(options.steps)) : 1;
+  const steps = Math.min(Math.max(1, requested), stack.length);
+
+  // The transition whose "before" snapshot we restore to.
+  const target = stack[stack.length - steps];
+  const restoredStatus = target.from_status ?? CLAIM_LIFECYCLE_STATES.PENDING;
+  const restoredVisibility = target.from_visibility ?? deriveVisibilityForStatus(restoredStatus);
+  const restoredRevokedAt = Object.hasOwn(target, "from_revoked_at") ? target.from_revoked_at : (claim.revoked_at || null);
+
+  const now = new Date().toISOString();
+  return {
+    ...claim,
+    status: restoredStatus,
+    visibility: restoredVisibility,
+    revoked_at: restoredRevokedAt,
+    last_action: ROLLBACK_ACTION,
+    updated_at: now,
+    lifecycle_history: [
+      ...history,
+      {
+        action: ROLLBACK_ACTION,
+        from_status: claim.status ?? null,
+        to_status: restoredStatus,
+        from_visibility: claim.visibility ?? null,
+        to_visibility: restoredVisibility,
+        from_revoked_at: claim.revoked_at || null,
+        to_revoked_at: restoredRevokedAt,
+        rolled_back_steps: steps,
+        rolled_back_to_action: target.action,
+        occurred_at: now,
+        reason: options.reason || `rolled_back_${steps}_step${steps === 1 ? "" : "s"}`
       }
     ]
   };

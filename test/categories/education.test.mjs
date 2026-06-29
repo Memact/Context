@@ -1,3 +1,4 @@
+﻿import { describe, it } from 'node:test';
 import assert from 'assert';
 import * as educationSchema from '../../src/categories/education.mjs';
 

@@ -1,3 +1,4 @@
+﻿import { describe, it } from 'node:test';
 import assert from 'assert';
 import * as socialSchema from '../../src/categories/social-messaging.mjs';
 
