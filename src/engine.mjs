@@ -3,6 +3,158 @@ import { buildProductivityAttributes, inferProductivitySubSchema } from "./categ
 export { buildMissingContextFields, contextGoalTemplates, groupContextEntry, suggestContextGoal } from "./context-goals.mjs";
 export { LocalContextMatcher, SemanticContextMatcher, createContextMatcher, matchContextFields } from "./context-matcher.mjs";
 
+// ---------------------------------------------------------------------------
+// Schema Overlay Compiler
+// ---------------------------------------------------------------------------
+// A module-level registry mapping category name → compiled validation hook.
+// Keeps the overlay registry isolated from the global scope so it can be
+// cleared between tests by calling clearSchemaOverlays().
+// ---------------------------------------------------------------------------
+
+const _overlayRegistry = new Map();
+
+/**
+ * ALLOWED_OVERLAY_TYPES is the set of primitive JSON Schema types this
+ * compiler understands. We deliberately keep it minimal (no external deps).
+ */
+const ALLOWED_OVERLAY_TYPES = new Set(["string", "number", "boolean", "array", "object"]);
+
+/**
+ * Compile an overlay definition into a reusable validation hook.
+ *
+ * Supported JSON Schema subset per property:
+ *   - type: "string" | "number" | "boolean" | "array" | "object"
+ *   - required: boolean  (shorthand: true = field must be present & non-null)
+ *   - description: string (informational only, not validated)
+ *   - items.type: type check for every element of an array field
+ *
+ * Returns a function: (context) => { valid: boolean, errors: string[] }
+ *
+ * @param {Record<string, { type: string, required?: boolean, description?: string, items?: { type: string } }>} overlayDefinition
+ * @returns {(context: object) => { valid: boolean, errors: string[] }}
+ */
+export function compileOverlay(overlayDefinition) {
+  if (!overlayDefinition || typeof overlayDefinition !== "object" || Array.isArray(overlayDefinition)) {
+    throw new TypeError("compileOverlay: overlayDefinition must be a non-null plain object.");
+  }
+
+  const fields = Object.entries(overlayDefinition);
+
+  // Validate the definition itself at compile time so bad overlays fail early.
+  for (const [fieldName, spec] of fields) {
+    if (!spec || typeof spec !== "object") {
+      throw new TypeError(`compileOverlay: spec for "${fieldName}" must be a plain object.`);
+    }
+    if (spec.type !== undefined && !ALLOWED_OVERLAY_TYPES.has(spec.type)) {
+      throw new TypeError(`compileOverlay: unknown type "${spec.type}" for field "${fieldName}". Allowed: ${[...ALLOWED_OVERLAY_TYPES].join(", ")}.`);
+    }
+    if (spec.items !== undefined) {
+      if (spec.type !== "array") {
+        throw new TypeError(`compileOverlay: "items" is only valid on type "array" (field "${fieldName}").`);
+      }
+      if (spec.items.type !== undefined && !ALLOWED_OVERLAY_TYPES.has(spec.items.type)) {
+        throw new TypeError(`compileOverlay: unknown items.type "${spec.items.type}" for field "${fieldName}".`);
+      }
+    }
+  }
+
+  // Return the compiled validation hook (closure over the parsed spec).
+  return function validateOverlay(context) {
+    const errors = [];
+    const ctx = (context && typeof context === "object" && !Array.isArray(context)) ? context : {};
+
+    for (const [fieldName, spec] of fields) {
+      const value = ctx[fieldName];
+      const isPresent = value !== undefined && value !== null;
+
+      // Required check
+      if (spec.required && !isPresent) {
+        errors.push(`overlay: required field "${fieldName}" is missing.`);
+        continue;
+      }
+
+      // If the field is absent and not required, skip further checks.
+      if (!isPresent) continue;
+
+      // Type check
+      if (spec.type) {
+        const actualType = Array.isArray(value) ? "array" : typeof value;
+        if (actualType !== spec.type) {
+          errors.push(`overlay: field "${fieldName}" must be of type "${spec.type}" but got "${actualType}".`);
+          continue;
+        }
+      }
+
+      // Array items type check
+      if (spec.type === "array" && spec.items?.type) {
+        const badIndex = value.findIndex((item) => {
+          const itemType = Array.isArray(item) ? "array" : typeof item;
+          return itemType !== spec.items.type;
+        });
+        if (badIndex !== -1) {
+          errors.push(`overlay: field "${fieldName}[${badIndex}]" must be of type "${spec.items.type}"`);
+        }
+      }
+    }
+
+    return { valid: errors.length === 0, errors };
+  };
+}
+
+/**
+ * Register a schema overlay for a category.
+ *
+ * @param {string} category  - The category name to extend (e.g. "food-delivery").
+ * @param {object} overlayDefinition - A map of field name → JSON-Schema-lite spec.
+ *   Example:
+ *   ```js
+ *   registerSchemaOverlay("food-delivery", {
+ *     beverage_likes: { type: "array", items: { type: "string" }, description: "Preferred beverages" },
+ *   });
+ *   ```
+ * @throws {TypeError} if category is not a non-empty string or overlayDefinition is invalid.
+ */
+export function registerSchemaOverlay(category, overlayDefinition) {
+  if (!category || typeof category !== "string") {
+    throw new TypeError("registerSchemaOverlay: category must be a non-empty string.");
+  }
+  // compileOverlay validates the definition and throws on bad input.
+  const hook = compileOverlay(overlayDefinition);
+  _overlayRegistry.set(category.trim().toLowerCase(), { definition: overlayDefinition, hook });
+}
+
+/**
+ * Remove all registered overlays. Primarily intended for test isolation.
+ */
+export function clearSchemaOverlays() {
+  _overlayRegistry.clear();
+}
+
+/**
+ * Return a read-only snapshot of the overlay registry.
+ * Keys are category names; values have { definition, hook }.
+ */
+export function listSchemaOverlays() {
+  return Object.fromEntries(
+    [..._overlayRegistry.entries()].map(([cat, entry]) => [cat, { definition: entry.definition }])
+  );
+}
+
+/**
+ * Run the registered overlay validation for a category against a context object.
+ * Returns { valid: true, errors: [] } if no overlay is registered.
+ *
+ * @param {string} category
+ * @param {object} context
+ * @returns {{ valid: boolean, errors: string[] }}
+ */
+function applyOverlayValidation(category, context) {
+  const key = (category || "").trim().toLowerCase();
+  const entry = _overlayRegistry.get(key);
+  if (!entry) return { valid: true, errors: [] };
+  return entry.hook(context);
+}
+
 const DEFAULT_MIN_SUPPORT = 3;
 const DEFAULT_MIN_MEANINGFUL_SCORE = 0.38;
 const DEFAULT_MIN_WEIGHTED_SUPPORT = 1.15;
@@ -294,6 +446,9 @@ export function shapeContextProposal(input = {}, options = {}) {
     ? contextFromSignal(submission)
     : sanitizeContextObject(submission.context || submission.value || {})
 
+  // Run any registered schema overlay for this category.
+  const overlayResult = applyOverlayValidation(category, context)
+
   return {
     schema_version: "memact.context_proposal.v0",
     input_kind: submission.kind,
@@ -301,7 +456,7 @@ export function shapeContextProposal(input = {}, options = {}) {
     title: String(submission.title || context.title || `Possible ${category} context`).trim().slice(0, 160),
     context,
     confidence: round(Number(submission.confidence ?? confidence)),
-    status: "pending",
+    status: overlayResult.valid ? "pending" : "overlay_invalid",
     visibility: "private",
     user_action_required: true,
     source_trail: sourceTrail,
@@ -310,6 +465,7 @@ export function shapeContextProposal(input = {}, options = {}) {
       "User must be able to accept, edit, reject, or delete this before it becomes memory.",
       "Do not expose raw private data by default."
     ],
+    ...(overlayResult.errors.length > 0 && { overlay_errors: overlayResult.errors }),
     created_at: new Date().toISOString()
   }
 }
