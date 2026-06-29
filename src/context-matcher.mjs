@@ -374,13 +374,28 @@ function scoreMemory(requestTokens, synonymFields, memory = {}, requestedCategor
     }
   }
 
-  const score = round(Math.max(0, Math.min(1, Math.max(lexical, fieldPathSimilarity, synonymBoost) + crossDomainRelevance)))
+  // Allow schemas to define cross-domain relevance vectors
+  let crossDomainRelevanceVector = 0;
+  if (memory.relevance_vectors && requestedCategory) {
+     if (memory.relevance_vectors[requestedCategory]) {
+       crossDomainRelevanceVector = memory.relevance_vectors[requestedCategory];
+       relevanceReasons.push(`Dynamic relevance to ${requestedCategory}: ${crossDomainRelevanceVector}`);
+     }
+  } else if (requestedCategory && String(requestedCategory).toLowerCase().trim() !== String(memory.category).toLowerCase().trim()) {
+    // If no explicit vector is provided, create a soft baseline based on lexical cross-match
+    if (lexical > 0.4) {
+      crossDomainRelevanceVector = lexical * 0.5; // Cap cross-domain raw match
+      relevanceReasons.push(`Soft semantic relevance to ${requestedCategory}`);
+    }
+  }
+
+  const score = round(Math.max(0, Math.min(1, Math.max(lexical, fieldPathSimilarity, synonymBoost, crossDomainRelevanceVector) + crossDomainRelevance)))
   
   const reasons = []
   if (synonymBoost) reasons.push("example mapping")
   if (lexical) reasons.push("keyword overlap")
   if (fieldPathSimilarity) reasons.push("field path similarity")
-  if (crossDomainRelevance > 0) reasons.push(...relevanceReasons)
+  if (relevanceReasons.length) reasons.push(...relevanceReasons)
 
   const isHighSensitivity = HIGH_SENSITIVITY_PREFIXES.some(prefix => 
     fieldPath.startsWith(prefix)
