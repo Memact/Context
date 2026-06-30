@@ -6,6 +6,7 @@ import {
   clearSchemaOverlays,
   listSchemaOverlays,
   shapeContextProposal,
+  withStrictValidation,
 } from "../src/engine.mjs";
 
 // ---------------------------------------------------------------------------
@@ -120,6 +121,75 @@ describe("compileOverlay", () => {
     const result = validate(null);
     assert.equal(result.valid, false);
     assert.ok(result.errors.some((e) => e.includes("tag")));
+  });
+
+  test("compiled hook: validates nested object properties", () => {
+    const validate = compileOverlay({
+      delivery_address: {
+        type: "object",
+        properties: {
+          city: { type: "string", required: true },
+          zipcode: { type: "string" }
+        }
+      }
+    });
+
+    const validResult = validate({
+      delivery_address: { city: "New York", zipcode: "10001" }
+    });
+    assert.equal(validResult.valid, true);
+
+    const invalidResult = validate({
+      delivery_address: { zipcode: "10001" } // missing required city
+    });
+    assert.equal(invalidResult.valid, false);
+    assert.ok(invalidResult.errors.some((e) => e.includes("delivery_address.city")));
+
+    const wrongTypeResult = validate({
+      delivery_address: { city: 12345 } // city is a number
+    });
+    assert.equal(wrongTypeResult.valid, false);
+    assert.ok(wrongTypeResult.errors.some((e) => e.includes("delivery_address.city")));
+  });
+
+  test("compiled hook: validates nested array of objects", () => {
+    const validate = compileOverlay({
+      order_history: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            item_name: { type: "string", required: true },
+            quantity: { type: "number" }
+          }
+        }
+      }
+    });
+
+    const validResult = validate({
+      order_history: [
+        { item_name: "Pizza", quantity: 2 },
+        { item_name: "Soda" }
+      ]
+    });
+    assert.equal(validResult.valid, true);
+
+    const invalidResult = validate({
+      order_history: [
+        { item_name: "Pizza", quantity: 2 },
+        { quantity: 1 } // missing item_name
+      ]
+    });
+    assert.equal(invalidResult.valid, false);
+    assert.ok(invalidResult.errors.some((e) => e.includes("order_history[1].item_name")));
+
+    const wrongTypeResult = validate({
+      order_history: [
+        { item_name: 123 } // wrong type
+      ]
+    });
+    assert.equal(wrongTypeResult.valid, false);
+    assert.ok(wrongTypeResult.errors.some((e) => e.includes("order_history[0].item_name")));
   });
 });
 
@@ -301,5 +371,79 @@ describe("shapeContextProposal overlay integration", () => {
     });
 
     assert.equal(proposal.status, "pending");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withStrictValidation — unit tests
+// ---------------------------------------------------------------------------
+
+describe("withStrictValidation", () => {
+  test("passes validation on valid normalizer output structure", () => {
+    const mockNormalizer = (input) => ({
+      category: "fitness",
+      stable_preferences: {
+        goal: input.goal,
+      },
+      current_goals: {
+        session_streak: input.streak,
+      },
+      validation: { ok: true }
+    });
+
+    const schema = {
+      goal: { type: "string" },
+      session_streak: { type: "number" }
+    };
+
+    const decorated = withStrictValidation(mockNormalizer, schema);
+    const result = decorated({ goal: "weight loss", streak: 5 });
+
+    assert.equal(result.validation.ok, true);
+  });
+
+  test("invalidates and records errors on invalid type in nested structure", () => {
+    const mockNormalizer = (input) => ({
+      category: "fitness",
+      stable_preferences: {
+        goal: input.goal,
+      },
+      current_goals: {
+        session_streak: input.streak,
+      },
+      validation: { ok: true }
+    });
+
+    const schema = {
+      goal: { type: "string" },
+      session_streak: { type: "number" }
+    };
+
+    const decorated = withStrictValidation(mockNormalizer, schema);
+    // passing streak as string "5" instead of number
+    const result = decorated({ goal: "weight loss", streak: "5" });
+
+    assert.equal(result.validation.ok, false);
+    assert.equal(result.validation.reason, "schema_validation_failed");
+    assert.ok(result.validation.issues.some((issue) => issue.field === "session_streak"));
+  });
+
+  test("invalidates and records errors on missing required nested fields", () => {
+    const mockNormalizer = () => ({
+      category: "fitness",
+      stable_preferences: {},
+      validation: { ok: true }
+    });
+
+    const schema = {
+      goal: { type: "string", required: true }
+    };
+
+    const decorated = withStrictValidation(mockNormalizer, schema);
+    const result = decorated({});
+
+    assert.equal(result.validation.ok, false);
+    assert.equal(result.validation.reason, "schema_validation_failed");
+    assert.ok(result.validation.issues.some((issue) => issue.field === "goal"));
   });
 });

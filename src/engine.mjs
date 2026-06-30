@@ -39,22 +39,40 @@ export function compileOverlay(overlayDefinition) {
 
   const fields = Object.entries(overlayDefinition);
 
-  // Validate the definition itself at compile time so bad overlays fail early.
-  for (const [fieldName, spec] of fields) {
-    if (!spec || typeof spec !== "object") {
+  // Helper to validate specifications recursively at compile time.
+  const checkSpec = (fieldName, spec) => {
+    if (!spec || typeof spec !== "object" || Array.isArray(spec)) {
       throw new TypeError(`compileOverlay: spec for "${fieldName}" must be a plain object.`);
     }
     if (spec.type !== undefined && !ALLOWED_OVERLAY_TYPES.has(spec.type)) {
+      if (fieldName.endsWith(".items") || fieldName.includes(".items")) {
+        const baseField = fieldName.split(".")[0];
+        throw new TypeError(`compileOverlay: unknown items.type "${spec.type}" for field "${baseField}".`);
+      }
       throw new TypeError(`compileOverlay: unknown type "${spec.type}" for field "${fieldName}". Allowed: ${[...ALLOWED_OVERLAY_TYPES].join(", ")}.`);
     }
     if (spec.items !== undefined) {
       if (spec.type !== "array") {
         throw new TypeError(`compileOverlay: "items" is only valid on type "array" (field "${fieldName}").`);
       }
-      if (spec.items.type !== undefined && !ALLOWED_OVERLAY_TYPES.has(spec.items.type)) {
-        throw new TypeError(`compileOverlay: unknown items.type "${spec.items.type}" for field "${fieldName}".`);
+      checkSpec(`${fieldName}.items`, spec.items);
+    }
+    if (spec.properties !== undefined) {
+      if (spec.type !== "object") {
+        throw new TypeError(`compileOverlay: "properties" is only valid on type "object" (field "${fieldName}").`);
+      }
+      if (!spec.properties || typeof spec.properties !== "object" || Array.isArray(spec.properties)) {
+        throw new TypeError(`compileOverlay: "properties" must be a non-null plain object for field "${fieldName}".`);
+      }
+      for (const [subKey, subSpec] of Object.entries(spec.properties)) {
+        checkSpec(`${fieldName}.${subKey}`, subSpec);
       }
     }
+  };
+
+  // Validate the definition itself at compile time so bad overlays fail early.
+  for (const [fieldName, spec] of fields) {
+    checkSpec(fieldName, spec);
   }
 
   // Return the compiled validation hook (closure over the parsed spec).
@@ -62,41 +80,121 @@ export function compileOverlay(overlayDefinition) {
     const errors = [];
     const ctx = (context && typeof context === "object" && !Array.isArray(context)) ? context : {};
 
-    for (const [fieldName, spec] of fields) {
-      const value = ctx[fieldName];
-      const isPresent = value !== undefined && value !== null;
+    const validateField = (val, fieldSpec, fieldPath) => {
+      const isPresent = val !== undefined && val !== null;
 
       // Required check
-      if (spec.required && !isPresent) {
-        errors.push(`overlay: required field "${fieldName}" is missing.`);
-        continue;
+      if (fieldSpec.required && !isPresent) {
+        errors.push(`overlay: required field "${fieldPath}" is missing.`);
+        return;
       }
 
       // If the field is absent and not required, skip further checks.
-      if (!isPresent) continue;
+      if (!isPresent) return;
 
       // Type check
-      if (spec.type) {
-        const actualType = Array.isArray(value) ? "array" : typeof value;
-        if (actualType !== spec.type) {
-          errors.push(`overlay: field "${fieldName}" must be of type "${spec.type}" but got "${actualType}".`);
-          continue;
+      if (fieldSpec.type) {
+        const actualType = Array.isArray(val) ? "array" : typeof val;
+        if (actualType !== fieldSpec.type) {
+          errors.push(`overlay: field "${fieldPath}" must be of type "${fieldSpec.type}" but got "${actualType}".`);
+          return;
         }
       }
 
-      // Array items type check
-      if (spec.type === "array" && spec.items?.type) {
-        const badIndex = value.findIndex((item) => {
-          const itemType = Array.isArray(item) ? "array" : typeof item;
-          return itemType !== spec.items.type;
+      // Array items check (recursive)
+      if (fieldSpec.type === "array" && fieldSpec.items) {
+        val.forEach((item, index) => {
+          validateField(item, fieldSpec.items, `${fieldPath}[${index}]`);
         });
-        if (badIndex !== -1) {
-          errors.push(`overlay: field "${fieldName}[${badIndex}]" must be of type "${spec.items.type}"`);
+      }
+
+      // Object properties check (recursive)
+      if (fieldSpec.type === "object" && fieldSpec.properties) {
+        const obj = (val && typeof val === "object" && !Array.isArray(val)) ? val : {};
+        for (const [subKey, subSpec] of Object.entries(fieldSpec.properties)) {
+          validateField(obj[subKey], subSpec, `${fieldPath}.${subKey}`);
         }
       }
+    };
+
+    for (const [fieldName, spec] of fields) {
+      validateField(ctx[fieldName], spec, fieldName);
     }
 
     return { valid: errors.length === 0, errors };
+  };
+}
+
+/**
+ * A validation decorator for category normalizer functions.
+ * Enforces strict typing on nested elements during signal processing.
+ *
+ * @param {Function} normalizer - The original normalizer function (e.g., normalizeFitnessContext).
+ * @param {object} schemaSpec - The schema specification mapping field paths/names to types.
+ * @returns {Function} A decorated normalizer function.
+ */
+export function withStrictValidation(normalizer, schemaSpec) {
+  if (typeof normalizer !== "function") {
+    throw new TypeError("withStrictValidation: normalizer must be a function.");
+  }
+  const validate = compileOverlay(schemaSpec);
+
+  return function strictlyValidatedNormalizer(input, ...args) {
+    const result = normalizer(input, ...args);
+    if (!result) return result;
+
+    const validationContext = { ...result };
+    const standardKeys = [
+      "category",
+      "source",
+      "observation_type",
+      "confidence",
+      "is_identity_claim",
+      "suggestion",
+      "needs_review",
+      "validation",
+      "dropped_fields",
+      "drop_reason",
+      "pending_approval_queue"
+    ];
+    for (const key of standardKeys) {
+      delete validationContext[key];
+    }
+
+    if (result.stable_preferences && typeof result.stable_preferences === "object") {
+      Object.assign(validationContext, result.stable_preferences);
+    }
+    if (result.current_goals && typeof result.current_goals === "object") {
+      Object.assign(validationContext, result.current_goals);
+    }
+    if (result.preferences && typeof result.preferences === "object") {
+      Object.assign(validationContext, result.preferences);
+    }
+
+    const { valid, errors } = validate(validationContext);
+
+    if (!valid) {
+      const issues = errors.map((err) => {
+        const fieldMatch = err.match(/"([^"]+)"/);
+        const field = fieldMatch ? fieldMatch[1] : "unknown";
+        return {
+          field,
+          reason: "invalid_type",
+          detail: err,
+        };
+      });
+
+      result.validation = {
+        ok: false,
+        reason: "schema_validation_failed",
+        issues: [
+          ...(result.validation && Array.isArray(result.validation.issues) ? result.validation.issues : []),
+          ...issues,
+        ],
+      };
+    }
+
+    return result;
   };
 }
 
