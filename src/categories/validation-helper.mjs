@@ -20,3 +20,11 @@ export function checkOverconfidentInferences(rawInput = {}, overconfidentFields 
 
   return { validation_issues, dropped_fields };
 }
+
+/**
+ * Calculate if an observation should graduate to a durable interest.
+ * Default rule: observed at least 3 times across 2 distinct days.
+ */
+export function shouldGraduateToDurable(count, distinctDays, minCount = 3, minDays = 2) {
+  return count >= minCount && distinctDays >= minDays;
+}
