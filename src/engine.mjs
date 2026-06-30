@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { resolveSchemaLifecycleState, schemaLifecycleLabel } from "./lifecycle.mjs";
 import { buildProductivityAttributes, inferProductivitySubSchema } from "./categories/productivity.mjs";
 export { buildMissingContextFields, contextGoalTemplates, groupContextEntry, suggestContextGoal } from "./context-goals.mjs";
@@ -181,6 +182,171 @@ const COGNITIVE_DIMENSIONS = {
   ],
 };
 
+export const contextMatchingExamples = Object.freeze([
+  {
+    app_field: "food restrictions",
+    memact_fields: ["diet.preference", "diet.allergy"],
+    reason: "Food restriction onboarding can use approved diet preference and allergy memory."
+  },
+  {
+    app_field: "workout goal",
+    memact_fields: ["fitness.goal"],
+    reason: "Fitness goal maps to accepted fitness goal memory."
+  },
+  {
+    app_field: "preferred name",
+    memact_fields: ["identity.preferred_name"],
+    reason: "A preferred-name field should use explicit identity memory only."
+  },
+  {
+    app_field: "learning goals",
+    memact_fields: ["education.learning_goals"],
+    reason: "Learning goals map to accepted education memory."
+  },
+  {
+    app_field: "budget range",
+    memact_fields: ["shopping.budget"],
+    reason: "Budget range maps to accepted shopping budget memory."
+  },
+  // Expanded synonyms
+  {
+    app_field: "dietary preferences",
+    memact_fields: ["diet.preference"],
+    reason: "Dietary preferences map to diet.preference memory."
+  },
+  {
+    app_field: "dietary restrictions",
+    memact_fields: ["diet.allergy"],
+    reason: "Dietary restrictions map to diet.allergy memory."
+  },
+  {
+    app_field: "food allergies",
+    memact_fields: ["diet.allergy"],
+    reason: "Food allergies map to diet.allergy memory."
+  },
+  {
+    app_field: "workout setup",
+    memact_fields: ["fitness.goal"],
+    reason: "Workout setup maps to fitness.goal memory."
+  },
+  {
+    app_field: "fitness objective",
+    memact_fields: ["fitness.goal"],
+    reason: "Fitness objective maps to fitness.goal memory."
+  },
+  {
+    app_field: "learning style",
+    memact_fields: ["learning.study_style"],
+    reason: "Learning style maps to learning.study_style memory."
+  },
+  {
+    app_field: "study schedule",
+    memact_fields: ["learning.schedule"],
+    reason: "Study schedule maps to learning.schedule memory."
+  },
+  {
+    app_field: "display name",
+    memact_fields: ["identity.preferred_name"],
+    reason: "Display name maps to identity.preferred_name memory."
+  },
+  {
+    app_field: "username",
+    memact_fields: ["identity.preferred_username"],
+    reason: "Username maps to identity.preferred_username memory."
+  },
+  {
+    app_field: "laptop budget",
+    memact_fields: ["shopping.laptop.budget"],
+    reason: "Laptop budget maps to shopping.laptop.budget memory."
+  },
+  {
+    app_field: "purchase budget",
+    memact_fields: ["shopping.budget"],
+    reason: "Purchase budget maps to shopping.budget memory."
+  },
+  {
+    app_field: "budget limit",
+    memact_fields: ["shopping.budget"],
+    reason: "Budget limit maps to shopping.budget memory."
+  }
+])
+
+// 🧠 TRIE-BASED SYNONYM PARSER IMPLEMENTATION FOR STARTUP ALIGNMENT (#164)
+class SynonymTrieNode {
+  constructor() {
+    this.children = {}
+    this.memactFields = []
+  }
+}
+
+class SynonymTrie {
+  constructor() {
+    this.root = new SynonymTrieNode()
+    this.buildTrie()
+  }
+
+  phraseToStems(phrase) {
+    return String(phrase || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9.]+/g, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(word => {
+        if (typeof word !== "string") return ""
+        let w = word.toLowerCase().trim()
+        if (w.length <= 3) return w
+        if (w.endsWith("ies")) return w.slice(0, -3) + "y"
+        if (w.endsWith("ing")) return w.slice(0, -3)
+        if (w.endsWith("s") && !w.endsWith("ss") && !w.endsWith("us") && !w.endsWith("is") && !w.endsWith("as")) {
+          if (w.endsWith("es")) {
+            if (w.endsWith("ses") || w.endsWith("xes") || w.endsWith("ches") || w.endsWith("shes")) {
+              return w.slice(0, -2)
+            }
+            return w.slice(0, -1)
+          }
+          return w.slice(0, -1)
+        }
+        return w
+      })
+  }
+
+  buildTrie() {
+    for (const example of contextMatchingExamples) {
+      const stems = this.phraseToStems(example.app_field)
+      if (stems.length === 0) continue
+
+      let currentNode = this.root
+      for (const stemToken of stems) {
+        if (!currentNode.children[stemToken]) {
+          currentNode.children[stemToken] = new SynonymTrieNode()
+        }
+        currentNode = currentNode.children[stemToken]
+      }
+      
+      for (const field of example.memact_fields) {
+        if (!currentNode.memactFields.includes(field)) {
+          currentNode.memactFields.push(field)
+        }
+      }
+    }
+  }
+
+  searchSynonyms(phrase) {
+    const stems = this.phraseToStems(phrase)
+    let currentNode = this.root
+    
+    for (const stemToken of stems) {
+      if (!currentNode.children[stemToken]) {
+        return []
+      }
+      currentNode = currentNode.children[stemToken]
+    }
+    return currentNode.memactFields
+  }
+}
+
+const SYNONYM_TRIE = new SynonymTrie()
+
 export function detectSchemas(inferenceOutput, options = {}) {
   const minSupport = Number(options.minSupport ?? DEFAULT_MIN_SUPPORT);
   const minimumMeaningfulScore = Number(options.minimumMeaningfulScore ?? DEFAULT_MIN_MEANINGFUL_SCORE);
@@ -239,10 +405,8 @@ export function groupByCategory(records = []) {
 export function inferSchemaType(record = {}) {
   const themes = Array.isArray(record.canonical_themes) ? record.canonical_themes : []
   const category = (record.category || "").toLowerCase()
-  // If the record explicitly declares its category as music, prefer that.
   if (category === "music") return "music_preferences"
   const text = `${category} ${themes.join(" ")} ${record.evidence?.title || ""}`.toLowerCase()
-  // Anchor on word boundaries and accept common plural forms to avoid substring false-positives
   if (/\b(?:music|songs?|playlists?|artists?|albums?|tracks?|genres?|listening)\b/.test(text)) return "music_preferences"
   if (/reading|article|summary|scroll|finish|completion/.test(text)) return "reading_preferences"
   if (/\b(shopping|shop|commerce|product|products)\b/.test(text)) return "shopping"
@@ -424,10 +588,6 @@ function buildMusicAttributes(records = []) {
     attributes[spec.output] = collectEvidenceValues(records, spec.aliases)
   }
 
-  // Sensitive keys are flagged for review when the app provided a meaningful value.
-  // We do NOT flag keys that are present but empty (empty string/empty array/empty object).
-  // This avoids false positives where an app includes a key name for schema reasons
-  // but does not provide identifying information (e.g. an empty `location` placeholder).
   const sensitiveFieldsRaw = records.flatMap((record) => {
     const evidence = record.evidence || {}
     return Object.keys(evidence).filter((key) => {
@@ -437,7 +597,6 @@ function buildMusicAttributes(records = []) {
       if (typeof v === "string") return v.trim() !== ""
       if (Array.isArray(v)) return v.length > 0
       if (typeof v === "object") return Object.keys(v).length > 0
-      // numbers and booleans are considered meaningful when present
       return true
     })
   })
@@ -458,17 +617,12 @@ function normalizeEvidenceValue(value) {
   if (Array.isArray(value)) {
     return value.flatMap((item) => normalizeEvidenceValue(item))
   }
-
   if (value === null || value === undefined || value === "") {
     return []
   }
-
-  // Preserve string values verbatim (as single entries).
-  // Splitting on commas can break legitimate names like "Earth, Wind & Fire".
   if (typeof value === "string") {
     return [value.trim()]
   }
-
   return [String(value)]
 }
 
@@ -748,7 +902,7 @@ function buildActionTendency(concepts, dimensions) {
     return `judge or compare activity around ${concepts.slice(0, 3).join(", ")}`;
   }
   if (dimensions.includes("identity")) {
-    return `connect ${concepts.slice(0, 3).join(", ")} to self-direction`;
+    return `move toward connecting ${concepts.slice(0, 3).join(", ")} to self-direction`;
   }
   return `revisit and connect ${concepts.slice(0, 3).join(", ")}`;
 }
@@ -798,6 +952,7 @@ function jaccard(left, right) {
   return intersection / union.size;
 }
 
+// Ensure unique induced schema boundaries
 function dedupeSchemas(candidates) {
   const accepted = [];
   for (const candidate of candidates) {
@@ -1084,4 +1239,44 @@ function slug(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "schema";
+}
+
+class CrossDomainMappingIndex {
+  constructor() {
+    this.forwardMap = new Map();
+  }
+
+  registerLink(pathA, pathB) {
+    const pA = String(pathA || "").trim().toLowerCase();
+    const pB = String(pathB || "").trim().toLowerCase();
+    if (!pA || !pB || pA === pB) return;
+
+    if (!this.forwardMap.has(pA)) this.forwardMap.set(pA, new Set());
+    if (!this.forwardMap.has(pB)) this.forwardMap.set(pB, new Set());
+
+    this.forwardMap.get(pA).add(pB);
+    this.forwardMap.get(pB).add(pA);
+  }
+
+  getAliases(path) {
+    const p = String(path || "").trim().toLowerCase();
+    if (!this.forwardMap.has(p)) return [];
+    return Array.from(this.forwardMap.get(p));
+  }
+}
+
+export const crossDomainIndex = new CrossDomainMappingIndex();
+
+export function initializeCrossDomainSchemaParser(mappings = []) {
+  if (!Array.isArray(mappings)) return;
+  
+  for (const entry of mappings) {
+    if (entry && Array.isArray(entry.synonyms)) {
+      for (let i = 0; i < entry.synonyms.length; i++) {
+        for (let j = i + 1; j < entry.synonyms.length; j++) {
+          crossDomainIndex.registerLink(entry.synonyms[i], entry.synonyms[j]);
+        }
+      }
+    }
+  }
 }
