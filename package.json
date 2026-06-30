@@ -42,7 +42,6 @@
     "schema": "node ./src/cli.mjs",
     "sample": "node ./src/cli.mjs --input examples/sample-inference-output.json --format report",
     "sample:json": "node ./src/cli.mjs --input examples/sample-inference-output.json --format json",
-    "calendar": "node ./scripts/calendar-scheduling.mjs",
     "prepare": "husky"
   },
   "devDependencies": {
