@@ -86,156 +86,73 @@ export const contextMatchingExamples = Object.freeze([
     app_field: "budget limit",
     memact_fields: ["shopping.budget"],
     reason: "Budget limit maps to shopping.budget memory."
-  },
-  // --- Learning synonyms ---
-  {
-    app_field: "preferred format",
-    memact_fields: ["learning.stable_preferences.preferred_format"],
-    reason: "Preferred format maps to learning preferred format memory."
-  },
-  {
-    app_field: "learning pace",
-    memact_fields: ["learning.stable_preferences.preferred_pace"],
-    reason: "Learning pace maps to learning preferred pace memory."
-  },
-  {
-    app_field: "study pace",
-    memact_fields: ["learning.stable_preferences.preferred_pace"],
-    reason: "Study pace maps to learning preferred pace memory."
-  },
-  {
-    app_field: "explanation style",
-    memact_fields: ["learning.stable_preferences.explanation_style"],
-    reason: "Explanation style maps to learning explanation style memory."
-  },
-  {
-    app_field: "session length",
-    memact_fields: ["learning.stable_preferences.session_length_preference"],
-    reason: "Session length maps to learning session length preference memory."
-  },
-  {
-    app_field: "active topics",
-    memact_fields: ["learning.current_goals.active_topics"],
-    reason: "Active topics maps to learning current goals active topics memory."
-  },
-  {
-    app_field: "current difficulty",
-    memact_fields: ["learning.current_goals.current_difficulty"],
-    reason: "Current difficulty maps to learning current difficulty memory."
-  },
-  // --- Shopping synonyms ---
-  {
-    app_field: "preferred categories",
-    memact_fields: ["shopping.preferred_categories"],
-    reason: "Preferred categories maps to shopping preferred categories memory."
-  },
-  {
-    app_field: "disliked categories",
-    memact_fields: ["shopping.disliked_categories"],
-    reason: "Disliked categories maps to shopping disliked categories memory."
-  },
-  {
-    app_field: "preferred brands",
-    memact_fields: ["shopping.preferred_brands"],
-    reason: "Preferred brands maps to shopping preferred brands memory."
-  },
-  {
-    app_field: "shopping format",
-    memact_fields: ["shopping.preferred_format"],
-    reason: "Shopping format maps to shopping preferred format memory."
-  },
-  {
-    app_field: "purchase frequency",
-    memact_fields: ["shopping.purchase_frequency"],
-    reason: "Purchase frequency maps to shopping purchase frequency memory."
-  },
-  {
-    app_field: "spending range",
-    memact_fields: ["shopping.budget"],
-    reason: "Spending range maps to shopping budget memory."
-  },
-  {
-    app_field: "price range",
-    memact_fields: ["shopping.budget"],
-    reason: "Price range maps to shopping budget memory."
-  },
-  // --- Fitness synonyms ---
-  {
-    app_field: "fitness goal",
-    memact_fields: ["fitness.goal"],
-    reason: "Fitness goal maps to fitness goal memory."
-  },
-  {
-    app_field: "activity level",
-    memact_fields: ["fitness.activity_level"],
-    reason: "Activity level maps to fitness activity level memory."
-  },
-  {
-    app_field: "workout type",
-    memact_fields: ["fitness.preferred_workout_type"],
-    reason: "Workout type maps to fitness preferred workout type memory."
-  },
-  {
-    app_field: "preferred workout",
-    memact_fields: ["fitness.preferred_workout_type"],
-    reason: "Preferred workout maps to fitness preferred workout type memory."
-  },
-  {
-    app_field: "equipment available",
-    memact_fields: ["fitness.equipment_available"],
-    reason: "Equipment available maps to fitness equipment available memory."
-  },
-  {
-    app_field: "dietary preference",
-    memact_fields: ["diet.preference"],
-    reason: "Dietary preference maps to diet.preference memory."
-  },
-  {
-    app_field: "meal preference",
-    memact_fields: ["diet.preference"],
-    reason: "Meal preference maps to diet.preference memory."
-  },
-  {
-    app_field: "food preference",
-    memact_fields: ["diet.preference"],
-    reason: "Food preference maps to diet.preference memory."
-  },
-  // --- Identity synonyms ---
-  {
-    app_field: "full name",
-    memact_fields: ["identity.preferred_name"],
-    reason: "Full name maps to identity preferred name memory."
-  },
-  {
-    app_field: "handle",
-    memact_fields: ["identity.preferred_username"],
-    reason: "Handle maps to identity preferred username memory."
-  },
-  {
-    app_field: "screen name",
-    memact_fields: ["identity.preferred_username"],
-    reason: "Screen name maps to identity preferred username memory."
-  },
-  {
-    app_field: "profile name",
-    memact_fields: ["identity.preferred_name"],
-    reason: "Profile name maps to identity preferred name memory."
-  },
-  {
-    app_field: "timezone",
-    memact_fields: ["identity.timezone"],
-    reason: "Timezone maps to identity timezone memory."
-  },
-  {
-    app_field: "language preference",
-    memact_fields: ["identity.language"],
-    reason: "Language preference maps to identity language memory."
   }
 ])
 
-const SYNONYM_FIELDS = Object.freeze(Object.fromEntries(
-  contextMatchingExamples.map((example) => [normalize(example.app_field), example.memact_fields])
-))
+// 🧠 TRIE-BASED SYNONYM PARSER IMPLEMENTATION
+class SynonymTrieNode {
+  constructor() {
+    this.children = {}
+    this.memactFields = []
+  }
+}
+
+class SynonymTrie {
+  constructor() {
+    this.root = new SynonymTrieNode()
+    this.buildTrie()
+  }
+
+  // Parses textual input phrases into an array of lowercase stems
+  phraseToStems(phrase) {
+    return String(phrase || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9.]+/g, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(word => stem(word))
+  }
+
+  buildTrie() {
+    for (const example of contextMatchingExamples) {
+      const stems = this.phraseToStems(example.app_field)
+      if (stems.length === 0) continue
+
+      let currentNode = this.root
+      for (const stemToken of stems) {
+        if (!currentNode.children[stemToken]) {
+          currentNode.children[stemToken] = new SynonymTrieNode()
+        }
+        currentNode.currentNode = currentNode.children[stemToken]
+        currentNode = currentNode.children[stemToken]
+      }
+      
+      // Map matching memory action fields to final leaf configuration
+      for (const field of example.memact_fields) {
+        if (!currentNode.memactFields.includes(field)) {
+          currentNode.memactFields.push(field)
+        }
+      }
+    }
+  }
+
+  // Looks up full or partial phrase matches via stem pathways
+  searchSynonyms(phrase) {
+    const stems = this.phraseToStems(phrase)
+    let currentNode = this.root
+    
+    for (const stemToken of stems) {
+      if (!currentNode.children[stemToken]) {
+        return []
+      }
+      currentNode = currentNode.children[stemToken]
+    }
+    return currentNode.memactFields
+  }
+}
+
+// Instantiate the global application trie context
+const SYNONYM_TRIE = new SynonymTrie()
 
 export class LocalContextMatcher {
   constructor({ threshold = 0.12 } = {}) {
@@ -264,11 +181,22 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
   return (Array.isArray(requestedContext) ? requestedContext : []).map((requestedItem) => {
     const requestText = requestToText(requestedItem)
     const requestTokens = tokens(requestText)
-    const synonymFields = SYNONYM_FIELDS[normalize(requestText)] || SYNONYM_FIELDS[normalize(requestedItem?.description)] || []
+    
+    // 🔍 Extract target field rules out of our newly integrated Synonym Stem Trie
+    const synonymFields = SYNONYM_TRIE.searchSynonyms(requestText).length > 0 
+      ? SYNONYM_TRIE.searchSynonyms(requestText) 
+      : SYNONYM_TRIE.searchSynonyms(requestedItem?.description || "")
+
     const candidates = (Array.isArray(memoryRecords) ? memoryRecords : [])
+      // ⚡ Early-exit confidence feature pruning pass (Issue #166)
+      .filter((memory) => {
+        const confidence = memory && typeof memory.confidence === "number" ? memory.confidence : 1.0
+        return confidence >= 0.2
+      })
       .map((memory) => scoreMemory(requestTokens, synonymFields, memory))
       .filter((candidate) => candidate.score >= threshold)
       .sort((left, right) => right.score - left.score || String(left.memory.field_path || "").localeCompare(String(right.memory.field_path || "")))
+      
     return {
       requested: requestedItem,
       request_text: requestText,
@@ -294,7 +222,6 @@ function scoreMemory(requestTokens, synonymFields, memory = {}) {
     if (candidateTokens.has(token)) {
       overlap += 1
     } else {
-      // Fuzzy match checkpoint: check if similar token exists in candidate
       let bestFuzzy = 0
       for (const candToken of candidateTokens) {
         const sim = jaroWinkler(token, candToken)
@@ -329,7 +256,8 @@ function normalize(value) {
   return String(value || "").toLowerCase().replace(/[^a-z0-9.]+/g, " ").replace(/\s+/g, " ").trim()
 }
 
-function tokens(value) {
+// Convert input value into clean tokenized stems
+export function tokens(value) {
   const rawTokens = normalize(value).split(/[.\s_-]+/).filter((token) => token.length >= 3 && !STOP_WORDS.has(token))
   return new Set(rawTokens.map((t) => stem(t)))
 }
@@ -344,7 +272,6 @@ function pathSimilarity(left = "", right = "") {
     if (rightSet.has(part)) {
       overlap += 1
     } else {
-      // Fuzzy match path part
       let bestFuzzy = 0
       for (const rPart of rightParts) {
         const sim = jaroWinkler(part, rPart)

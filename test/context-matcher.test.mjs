@@ -68,3 +68,17 @@ test("context matcher utilizes expanded synonym mappings", () => {
   assert.equal(result2[0].candidates[0].memory.field_path, "shopping.laptop.budget")
 })
 
+test("context matcher processes input tokens through the synonym stem trie", () => {
+  const result = matchContextFields([
+    { description: "food restrictions" }
+  ], [
+    { field_path: "diet.preference", value: "vegetarian", category: "diet" }
+  ])
+
+  const candidates = result[0].candidates;
+
+  // Verify that the Trie mapped the token stems over to the target preference field path
+  assert.ok(candidates.length > 0);
+  assert.equal(candidates[0].memory.field_path, "diet.preference");
+  assert.ok(candidates[0].reasons.includes("example mapping"));
+})
