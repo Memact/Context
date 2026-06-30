@@ -11,7 +11,9 @@ export const contextFields = {
   active_search_topics: "Topics the user is actively browsing right now.",
   cart_items: "Current cart contents or cart-like items that are temporary by nature.",
   viewed_products: "Recently viewed products that expire automatically after 30 days.",
-  purchase_occasion: "Why the purchase is happening right now: personal, gift, emergency, shared, or unknown."
+  purchase_occasion: "Why the purchase is happening right now: personal, gift, emergency, shared, or unknown.",
+  preferred_clothing_size: "Preferred clothing size",
+  preferred_shoe_size: "Preferred shoe size",
 };
 
 export const sensitiveFieldRules = {
@@ -42,24 +44,26 @@ export const sensitiveFieldRules = {
 
 export const rawInputExamples = [
   {
-    user_id: "u_456",
-    purchases: ["baby monitor", "diaper bag", "prenatal vitamins"],
-    inferred_segment: "new_parent",
-    avg_order_value: 84.5,
-    abandoned_carts: ["standing desk", "webcam"],
-    preferred_categories: ["health", "baby"],
-    last_search: "ergonomic chair",
-    loyalty_tier: "gold"
+  user_id: "u_456",
+  purchases: ["baby monitor", "diaper bag", "prenatal vitamins"],
+  inferred_segment: "new_parent",
+  avg_order_value: 84.5,
+  abandoned_carts: ["standing desk", "webcam"],
+  preferred_categories: ["health", "baby"],
+  last_search: "ergonomic chair",
+  loyalty_tier: "gold",
+  preferred_clothing_size: "M"
   },
   {
     user_id: "u_456",
-    recent_purchases: ["luxury handbag"],
+    recent_purchases: ["luxury handbag","running shoes"],
     inferred_income_bracket: "high",
     browsed_categories: ["women", "accessories"],
     wishlisted: ["summer dress", "sandals"],
     gift_flag: true,
     brand_affinity: ["Zara", "H&M"],
-    return_rate: 0.4
+    return_rate: 0.4,
+    preferred_shoe_size: "8"
   }
 ];
 
@@ -67,14 +71,16 @@ export const normalizedOutputExamples = [
   {
     category: "shopping",
     durable_preferences: {
-      preferred_categories: ["health"],
-      disliked_categories: [],
-      preferred_brands: [],
-      disliked_brands: [],
-      budget_range: null,
-      preferred_format: "online",
-      purchase_frequency: null
-    },
+    preferred_categories: ["health"],
+    disliked_categories: [],
+    preferred_brands: [],
+    disliked_brands: [],
+    budget_range: null,
+    preferred_format: "online",
+    purchase_frequency: null,
+    preferred_clothing_size: "M",
+    preferred_shoe_size: null
+  },
     temporary_intent: {
       active_search_topics: ["ergonomic chair"],
       cart_items: ["standing desk", "webcam"],
@@ -91,13 +97,15 @@ export const normalizedOutputExamples = [
   {
     category: "shopping",
     durable_preferences: {
-      preferred_categories: ["accessories"],
-      disliked_categories: [],
-      preferred_brands: ["Zara", "H&M"],
-      disliked_brands: [],
-      budget_range: null,
-      preferred_format: "online",
-      purchase_frequency: null
+    preferred_categories: ["accessories"],
+    disliked_categories: [],
+    preferred_brands: ["Zara", "H&M"],
+    disliked_brands: [],
+    budget_range: null,
+    preferred_format: "online",
+    purchase_frequency: null,
+    preferred_clothing_size: null,
+    preferred_shoe_size: "8"
     },
     temporary_intent: {
       active_search_topics: ["summer dress", "sandals"],
@@ -136,7 +144,9 @@ export const permissionSuggestions = {
   abandoned_carts: "high",
   budget_inferences: "high",
   inferred_life_events: "high",
-  repeated_mistakes: "high"
+  repeated_mistakes: "high",
+  preferred_clothing_size: "medium",
+  preferred_shoe_size: "medium"
 };
 
 export const careNotes = [
@@ -204,7 +214,9 @@ export function normalizeShoppingContext(rawInput = {}) {
       disliked_brands: toUniqueList(input.disliked_brands),
       budget_range: budgetRange,
       preferred_format: inferPreferredFormat(input),
-      purchase_frequency: inferPurchaseFrequency(input)
+      purchase_frequency: inferPurchaseFrequency(input),
+      preferred_clothing_size: input.preferred_clothing_size ?? null,
+      preferred_shoe_size: input.preferred_shoe_size ?? null
     },
     temporary_intent: {
       active_search_topics: activeSearchTopics,

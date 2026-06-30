@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
+
 const STOP_WORDS = new Set(["a", "an", "and", "app", "can", "for", "from", "get", "of", "the", "to", "use", "user", "with"])
+const HIGH_SENSITIVITY_PREFIXES = ["identity", "diet.allergy"];
 
 export const contextMatchingExamples = Object.freeze([
   {
@@ -260,15 +263,37 @@ export function createContextMatcher(options = {}) {
 }
 
 export function matchContextFields(requestedContext = [], memoryRecords = [], options = {}) {
-  const threshold = Number(options.threshold ?? 0.12)
+  const baseThreshold = Number(options.threshold ?? 0.12)
+  const requestedCategory = options.requestedCategory || null; // NEW
+
   return (Array.isArray(requestedContext) ? requestedContext : []).map((requestedItem) => {
     const requestText = requestToText(requestedItem)
     const requestTokens = tokens(requestText)
+    const itemCategory = requestedItem?.category || requestedItem?.category_hint || requestedCategory || null
+
+    // Dynamic Threshold Adjustment based on query specificity:
+    // - Broad query (<= 1 token): increase matching threshold by +0.08 to prevent irrelevant matches
+    // - Highly specific query (>= 3 tokens): decrease matching threshold by -0.05 to allow near-matches
+    // - Standard query (2 tokens): use base threshold
+    let itemThreshold = baseThreshold
+    if (requestTokens.size <= 1) {
+      itemThreshold = baseThreshold + 0.08
+    } else if (requestTokens.size >= 3) {
+      itemThreshold = Math.max(0.01, baseThreshold - 0.05)
+    }
     const synonymFields = SYNONYM_FIELDS[normalize(requestText)] || SYNONYM_FIELDS[normalize(requestedItem?.description)] || []
+    
     const candidates = (Array.isArray(memoryRecords) ? memoryRecords : [])
-      .map((memory) => scoreMemory(requestTokens, synonymFields, memory))
-      .filter((candidate) => candidate.score >= threshold)
+      // 👇 Early-exit: Drop low-confidence candidates before scoring
+      .filter((memory) => {
+        const confidence = memory && typeof memory.confidence === "number" ? memory.confidence : 1.0
+        return confidence >= 0.2
+      })
+      // Pass itemCategory downwards
+      .map((memory) => scoreMemory(requestTokens, synonymFields, memory, itemCategory))
+      .filter((candidate) => candidate.score >= itemThreshold)
       .sort((left, right) => right.score - left.score || String(left.memory.field_path || "").localeCompare(String(right.memory.field_path || "")))
+      
     return {
       requested: requestedItem,
       request_text: requestText,
@@ -277,24 +302,39 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
   })
 }
 
-function scoreMemory(requestTokens, synonymFields, memory = {}) {
+/**
+ * Local cryptographic helper utility to mask private PII strings before scoring execution passes
+ */
+export function anonymizePrivateIdentities(text = "") {
+  const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+  return String(text).replace(EMAIL_PATTERN, (match) => {
+    return "anon_" + createHash("sha256").update(match.toLowerCase().trim()).digest("hex").slice(0, 12);
+  });
+}
+
+function scoreMemory(requestTokens, synonymFields, memory = {}, requestedCategory = null) {
   const fieldPath = String(memory.field_path || memory.path || "")
+  
+  // Protect and tokenize personal information before creating searchable context blocks
+  const rawValue = String(memory.value || "")
+  const protectedValue = anonymizePrivateIdentities(rawValue)
+
   const searchable = [
     fieldPath,
     memory.category,
     memory.label,
     memory.title,
     memory.summary,
-    memory.value,
+    protectedValue,
     ...(memory.themes || [])
   ].join(" ")
+  
   const candidateTokens = tokens(searchable)
   let overlap = 0
   for (const token of requestTokens) {
     if (candidateTokens.has(token)) {
       overlap += 1
     } else {
-      // Fuzzy match checkpoint: check if similar token exists in candidate
       let bestFuzzy = 0
       for (const candToken of candidateTokens) {
         const sim = jaroWinkler(token, candToken)
@@ -305,18 +345,70 @@ function scoreMemory(requestTokens, synonymFields, memory = {}) {
       }
     }
   }
+
   const lexical = requestTokens.size ? overlap / requestTokens.size : 0
   const fieldPathSimilarity = pathSimilarity(fieldPath, [...requestTokens].join("."))
   const synonymBoost = synonymFields.includes(fieldPath) ? 0.78 : 0
-  const score = round(Math.max(lexical, fieldPathSimilarity, synonymBoost))
+  
+  // --- Contradiction Resolution Logic for Overlapping Claim Classes ---
+  let crossDomainRelevance = 0
+  const relevanceReasons = []
+  
+  if (requestedCategory && memory.category) {
+    const normReqCat = String(requestedCategory).toLowerCase().trim()
+    const normMemCat = String(memory.category).toLowerCase().trim()
+    
+    if (normReqCat === normMemCat) {
+      // Prioritize active short-term target intent category with a baseline boost
+      crossDomainRelevance = 0.15
+      relevanceReasons.push("active context match")
+      
+      // If an explicit intent signal overrides a conflicting passive record layout
+      if (memory.scope === "temporary_intent") {
+        crossDomainRelevance += 0.25
+        relevanceReasons.push("intent priority override")
+      }
+    } else if (memory.scope === "temporary_intent") {
+      // Deprioritize out-of-domain transient traits to prevent leakage across modules
+      crossDomainRelevance = -0.30
+    }
+  }
+
+  // Allow schemas to define cross-domain relevance vectors
+  let crossDomainRelevanceVector = 0;
+  if (memory.relevance_vectors && requestedCategory) {
+     if (memory.relevance_vectors[requestedCategory]) {
+       crossDomainRelevanceVector = memory.relevance_vectors[requestedCategory];
+       relevanceReasons.push(`Dynamic relevance to ${requestedCategory}: ${crossDomainRelevanceVector}`);
+     }
+  } else if (requestedCategory && String(requestedCategory).toLowerCase().trim() !== String(memory.category).toLowerCase().trim()) {
+    // If no explicit vector is provided, create a soft baseline based on lexical cross-match
+    if (lexical > 0.4) {
+      crossDomainRelevanceVector = lexical * 0.5; // Cap cross-domain raw match
+      relevanceReasons.push(`Soft semantic relevance to ${requestedCategory}`);
+    }
+  }
+
+  const score = round(Math.max(0, Math.min(1, Math.max(lexical, fieldPathSimilarity, synonymBoost, crossDomainRelevanceVector) + crossDomainRelevance)))
+  
   const reasons = []
   if (synonymBoost) reasons.push("example mapping")
   if (lexical) reasons.push("keyword overlap")
   if (fieldPathSimilarity) reasons.push("field path similarity")
+  if (relevanceReasons.length) reasons.push(...relevanceReasons)
+
+  const isHighSensitivity = HIGH_SENSITIVITY_PREFIXES.some(prefix => 
+    fieldPath.startsWith(prefix)
+  );
+
+  const sensitivity = isHighSensitivity ? "high" : "low";
+
   return {
     memory,
     score,
-    reasons: reasons.length ? reasons : ["weak fallback match"]
+    reasons: reasons.length ? reasons : ["weak fallback match"],
+    sensitivity,
+    requires_approval: sensitivity === "high" 
   }
 }
 
@@ -344,7 +436,6 @@ function pathSimilarity(left = "", right = "") {
     if (rightSet.has(part)) {
       overlap += 1
     } else {
-      // Fuzzy match path part
       let bestFuzzy = 0
       for (const rPart of rightParts) {
         const sim = jaroWinkler(part, rPart)
@@ -432,4 +523,272 @@ export function jaroWinkler(s1, s2) {
   }
 
   return jaro + commonPrefix * 0.1 * (1 - jaro)
+}
+
+export function rankContextNodes(taskContext, memoryRecords = [], options = {}) {
+  const taskText = typeof taskContext === "string" ? taskContext : (taskContext?.task || "")
+  const categoryHints = Array.isArray(taskContext?.category_hints) ? taskContext.category_hints : []
+  const weights = taskContext?.importance_weights || {}
+
+  const taskTokens = tokens(taskText)
+  
+  const inferredCategories = new Set(categoryHints)
+  const categoryKeywords = {
+    "food": ["food", "diet", "allergy", "restaurant", "dinner", "lunch", "meal", "eat", "cooking"],
+    "diet": ["diet", "preference", "allergy", "vegetarian", "vegan", "gluten", "food"],
+    "fitness": ["fitness", "workout", "gym", "exercise", "run", "training", "sports"],
+    "shopping": ["shopping", "budget", "buy", "purchase", "price", "spend", "store", "laptop"],
+    "learning": ["learning", "study", "course", "education", "tutorial", "exam"],
+    "identity": ["identity", "name", "username", "profile", "language", "timezone"],
+    "travel": ["travel", "trip", "location", "gps", "hotel", "flight", "destination"],
+    "sports": ["sports", "game", "play", "football", "basketball", "tennis"]
+  }
+
+  for (const [cat, keywords] of Object.entries(categoryKeywords)) {
+    for (const kw of keywords) {
+      if (taskTokens.has(stem(kw))) {
+        inferredCategories.add(cat)
+      }
+    }
+  }
+
+  const scored = (Array.isArray(memoryRecords) ? memoryRecords : []).map((memory) => {
+    const fieldPath = String(memory.field_path || memory.path || "")
+    const category = String(memory.category || "").toLowerCase()
+    
+    // 1. Lexical match score
+    const searchable = [
+      fieldPath,
+      category,
+      memory.label,
+      memory.title,
+      memory.summary,
+      memory.value,
+      ...(memory.themes || [])
+    ].join(" ")
+    const candidateTokens = tokens(searchable)
+    
+    let overlap = 0
+    for (const token of taskTokens) {
+      if (candidateTokens.has(token)) {
+        overlap += 1
+      } else {
+        let bestFuzzy = 0
+        for (const candToken of candidateTokens) {
+          const sim = jaroWinkler(token, candToken)
+          if (sim > bestFuzzy) bestFuzzy = sim
+        }
+        if (bestFuzzy >= 0.85) {
+          overlap += bestFuzzy
+        }
+      }
+    }
+    const lexicalScore = taskTokens.size ? overlap / taskTokens.size : 0
+
+    // 2. Category match boost
+    let categoryMatchScore = 0
+    if (inferredCategories.has(category)) {
+      categoryMatchScore = 0.5
+    } else {
+      const pathParts = fieldPath.split(".")
+      if (pathParts.some(part => inferredCategories.has(part))) {
+        categoryMatchScore = 0.4
+      }
+    }
+
+    // 3. Relevance Vectors check
+    let relevanceVectorScore = 0
+    if (memory.relevance_vectors) {
+      for (const activeCat of inferredCategories) {
+        if (memory.relevance_vectors[activeCat]) {
+          relevanceVectorScore = Math.max(relevanceVectorScore, memory.relevance_vectors[activeCat])
+        }
+      }
+    }
+
+    // 4. Custom Weight Boost
+    let customWeight = 1.0
+    if (weights[category]) {
+      customWeight = weights[category]
+    }
+    for (const [key, wt] of Object.entries(weights)) {
+      if (fieldPath.includes(key)) {
+        customWeight = Math.max(customWeight, wt)
+      }
+    }
+
+    const rawScore = Math.max(lexicalScore, categoryMatchScore, relevanceVectorScore) * customWeight
+    const score = Number(Math.max(0, Math.min(1, rawScore)).toFixed(3))
+
+    const reasons = []
+    if (lexicalScore > 0) reasons.push("lexical overlap")
+    if (categoryMatchScore > 0) reasons.push("category match")
+    if (relevanceVectorScore > 0) reasons.push("relevance vector mapping")
+    if (customWeight !== 1.0) reasons.push(`custom weight multiplier: ${customWeight}`)
+
+    return {
+      memory,
+      score,
+      reasons: reasons.length ? reasons : ["weak semantic fallback"]
+    }
+  })
+
+  const threshold = options.threshold ?? 0.10
+  return scored
+    .filter((candidate) => candidate.score >= threshold)
+    .sort((left, right) => right.score - left.score || String(left.memory.field_path || "").localeCompare(String(right.memory.field_path || "")))
+}
+
+export class CrossCategoryRelevanceRanker {
+  constructor(options = {}) {
+    this.threshold = options.threshold ?? 0.10
+  }
+
+  rank(taskContext, memoryRecords) {
+    return rankContextNodes(taskContext, memoryRecords, { threshold: this.threshold })
+  }
+}
+
+export class CollisionTree {
+  constructor(name = "root") {
+    this.name = name;
+    this.children = new Map();
+    this.priorityList = null;
+  }
+
+  setPriority(path, priorities) {
+    const parts = typeof path === "string" ? path.split(".") : path;
+    if (!parts || parts.length === 0 || (parts.length === 1 && parts[0] === "")) {
+      this.priorityList = priorities;
+      return;
+    }
+    const [first, ...rest] = parts;
+    if (!this.children.has(first)) {
+      this.children.set(first, new CollisionTree(first));
+    }
+    this.children.get(first).setPriority(rest, priorities);
+  }
+
+  getPriority(path) {
+    const parts = typeof path === "string" ? path.split(".") : path;
+    let current = this;
+    let bestPriority = this.priorityList;
+    for (const part of parts) {
+      if (current.children.has(part)) {
+        current = current.children.get(part);
+        if (current.priorityList !== null) {
+          bestPriority = current.priorityList;
+        }
+      } else {
+        break;
+      }
+    }
+    return bestPriority;
+  }
+}
+
+export function resolveOverwriteCollisions(writes = [], priorityTree = null, categoryWeights = {}) {
+  // Group writes by target path
+  const grouped = {};
+  for (const write of writes) {
+    const path = write.path;
+    if (!grouped[path]) {
+      grouped[path] = [];
+    }
+    grouped[path].push(write);
+  }
+
+  const resolved = {};
+  const routedToCRP = [];
+
+  for (const [path, pathWrites] of Object.entries(grouped)) {
+    if (pathWrites.length === 1) {
+      resolved[path] = pathWrites[0];
+      continue;
+    }
+
+    // Collision!
+    // 1. Resolve using PriorityTree
+    let priorities = null;
+    if (priorityTree) {
+      priorities = priorityTree.getPriority(path);
+    }
+
+    let winningWrite = null;
+
+    if (priorities && priorities.length > 0) {
+      let bestIndex = Infinity;
+      let candidates = [];
+      for (const w of pathWrites) {
+        const idx = priorities.indexOf(w.category);
+        if (idx !== -1) {
+          if (idx < bestIndex) {
+            bestIndex = idx;
+            candidates = [w];
+          } else if (idx === bestIndex) {
+            candidates.push(w);
+          }
+        }
+      }
+      if (candidates.length === 1) {
+        winningWrite = candidates[0];
+      } else if (candidates.length > 1) {
+        winningWrite = resolveByWeights(candidates, categoryWeights);
+      }
+    }
+
+    // 2. If priority tree did not resolve, fall back to weights on all pathWrites
+    if (!winningWrite) {
+      winningWrite = resolveByWeights(pathWrites, categoryWeights);
+    }
+
+    if (winningWrite) {
+      resolved[path] = winningWrite;
+    } else {
+      routedToCRP.push({
+        path,
+        reason: "collision_unresolved",
+        writes: pathWrites,
+        route_to_crp: true
+      });
+    }
+  }
+
+  return {
+    resolved,
+    routedToCRP
+  };
+}
+
+function resolveByWeights(writes, categoryWeights) {
+  let maxWeight = -Infinity;
+  let candidates = [];
+  for (const w of writes) {
+    const weight = categoryWeights[w.category] !== undefined ? categoryWeights[w.category] : 1.0;
+    if (weight > maxWeight) {
+      maxWeight = weight;
+      candidates = [w];
+    } else if (weight === maxWeight) {
+      candidates.push(w);
+    }
+  }
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
+  // Check confidence as a secondary metric
+  let maxConfidence = -Infinity;
+  let confidenceCandidates = [];
+  for (const w of candidates) {
+    const conf = w.confidence !== undefined ? w.confidence : 1.0;
+    if (conf > maxConfidence) {
+      maxConfidence = conf;
+      confidenceCandidates = [w];
+    } else if (conf === maxConfidence) {
+      confidenceCandidates.push(w);
+    }
+  }
+  if (confidenceCandidates.length === 1) {
+    return confidenceCandidates[0];
+  }
+  return null;
 }

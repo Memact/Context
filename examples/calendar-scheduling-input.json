@@ -1,0 +1,9 @@
+{
+  "source": "my-calendar",
+  "buffer": "20 minutes",
+  "avoided_days": ["Saturday", "Sunday"],
+  "focus_window": "Monday 09:00-11:00",
+  "meeting_title": "Private planning call",
+  "attendee_emails": ["person@example.com"],
+  "meeting_link": "https://meet.example/private"
+}
