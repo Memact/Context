@@ -4,13 +4,15 @@ import { SYNONYM_TRIE, normalize, stem, STOP_WORDS, HIGH_SENSITIVITY_PREFIXES } 
 export { contextMatchingExamples } from "./synonym-registry.mjs";
 
 export class LocalContextMatcher {
-  constructor({ threshold = 0.12 } = {}) {
+  constructor({ threshold = 0.12, minimumThreshold = null } = {}) {
     this.threshold = Number(threshold);
+    const parsedMinimumThreshold = Number(minimumThreshold);
+    this.minimumThreshold = Number.isFinite(parsedMinimumThreshold) ? parsedMinimumThreshold : null;
     this.kind = "local_keyword_overlap";
   }
 
   match(requestedContext = [], memoryRecords = []) {
-    return matchContextFields(requestedContext, memoryRecords, { threshold: this.threshold });
+    return matchContextFields(requestedContext, memoryRecords, { threshold: this.threshold, minimumThreshold: this.minimumThreshold });
   }
 }
 
@@ -27,6 +29,7 @@ export function createContextMatcher(options = {}) {
 
 export function matchContextFields(requestedContext = [], memoryRecords = [], options = {}) {
   const baseThreshold = Number(options.threshold ?? 0.12);
+  const sessionMinimumThreshold = resolveMinimumThreshold(options);
   const requestedCategory = options.requestedCategory || null;
 
   return (Array.isArray(requestedContext) ? requestedContext : []).map((requestedItem) => {
@@ -40,6 +43,9 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
       itemThreshold = baseThreshold + 0.08;
     } else if (requestTokens.size >= 3) {
       itemThreshold = Math.max(0.01, baseThreshold - 0.05);
+    }
+    if (sessionMinimumThreshold !== null) {
+      itemThreshold = Math.max(itemThreshold, sessionMinimumThreshold);
     }
     
     // 🔍 Extract target field rules out of our integrated Synonym Stem Trie
@@ -173,6 +179,38 @@ function scoreMemory(requestTokens, synonymFields, memory = {}, requestedCategor
 function requestToText(item) {
   if (typeof item === "string") return item;
   return [item?.description, item?.field_hint, item?.category_hint, item?.name].filter(Boolean).join(" ");
+}
+
+function resolveMinimumThreshold(options = {}) {
+  const candidates = [
+    options.minimumThreshold,
+    options.minThreshold,
+    options.minimumMatchingThreshold,
+    options.session?.minimumThreshold,
+    options.session?.minThreshold,
+    options.session?.minimumMatchingThreshold,
+    options.querySession?.minimumThreshold,
+    options.querySession?.minThreshold,
+    options.querySession?.minimumMatchingThreshold,
+    options.query_session?.minimum_threshold,
+    options.query_session?.min_threshold,
+    options.query_session?.minimum_matching_threshold,
+    options.sessionConfig?.minimumThreshold,
+    options.sessionConfig?.minThreshold,
+    options.sessionConfig?.minimumMatchingThreshold,
+    options.session_config?.minimum_threshold,
+    options.session_config?.min_threshold,
+    options.session_config?.minimum_matching_threshold
+  ];
+
+  for (const candidate of candidates) {
+    const threshold = Number(candidate);
+    if (Number.isFinite(threshold)) {
+      return threshold;
+    }
+  }
+
+  return null;
 }
 
 // Convert input value into clean tokenized stems

@@ -191,6 +191,26 @@ test("context matcher adjusts threshold dynamically based on query specificity",
   assert.equal(specificResult[0].candidates[0].memory.field_path, "shopping.budget")
 })
 
+test("context matcher respects a per-session minimum threshold floor", () => {
+  const baselineResult = matchContextFields(
+    [{ description: "diet preferences" }],
+    [{ field_path: "shopping.budget", relevance_vectors: { fitness: 0.15 }, category: "shopping" }],
+    { requestedCategory: "fitness" }
+  )
+  assert.equal(baselineResult[0].candidates.length, 1)
+
+  const sessionCappedResult = matchContextFields(
+    [{ description: "diet preferences" }],
+    [{ field_path: "shopping.budget", relevance_vectors: { fitness: 0.15 }, category: "shopping" }],
+    {
+      requestedCategory: "fitness",
+      querySession: { minimumMatchingThreshold: 0.16 }
+    }
+  )
+
+  assert.equal(sessionCappedResult[0].candidates.length, 0)
+})
+
 test("cross-category relevance ranking engine ranks candidates globally", () => {
   const memories = [
     { field_path: "diet.preference", value: "vegan", category: "diet" },
