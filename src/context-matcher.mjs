@@ -357,6 +357,7 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
     "food": ["food", "diet", "allergy", "restaurant", "dinner", "lunch", "meal", "eat", "cooking"],
     "diet": ["diet", "preference", "allergy", "vegetarian", "vegan", "gluten", "food"],
     "fitness": ["fitness", "workout", "gym", "exercise", "run", "training", "sports"],
+    "health": ["health", "wellness", "medical", "medicine", "insurance", "benefits", "clinic"],
     "shopping": ["shopping", "budget", "buy", "purchase", "price", "spend", "store", "laptop"],
     "learning": ["learning", "study", "course", "education", "tutorial", "exam"],
     "identity": ["identity", "name", "username", "profile", "language", "timezone"],
