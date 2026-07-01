@@ -2,7 +2,7 @@ import { resolveSchemaLifecycleState, schemaLifecycleLabel } from "./lifecycle.m
 import { buildProductivityAttributes, inferProductivitySubSchema } from "./categories/productivity.mjs";
 export { buildMissingContextFields, contextGoalTemplates, groupContextEntry, suggestContextGoal } from "./context-goals.mjs";
 export { LocalContextMatcher, SemanticContextMatcher, createContextMatcher, matchContextFields } from "./context-matcher.mjs";
-
+export { compileSchemaOverlay } from "./overlay-compiler.mjs";
 const DEFAULT_MIN_SUPPORT = 3;
 const DEFAULT_MIN_MEANINGFUL_SCORE = 0.38;
 const DEFAULT_MIN_WEIGHTED_SUPPORT = 1.15;
