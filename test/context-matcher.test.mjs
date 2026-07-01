@@ -227,6 +227,42 @@ test("context matcher isolates developer tool context from shopping queries", ()
   assert.equal(ranked.length, 0)
 })
 
+test("context matcher partitions food-delivery from health and fitness queries", () => {
+  const foodDeliveryMemory = [{
+    field_path: "food-delivery.restaurant_name",
+    value: "Punjabi Tadka",
+    category: "food-delivery",
+    relevance_vectors: { health: 0.9, fitness: 0.9 }
+  }]
+
+  const healthResult = matchContextFields(
+    [{ description: "health insurance deductible and wellness coverage" }],
+    foodDeliveryMemory,
+    { requestedCategory: "health" }
+  )
+  assert.equal(healthResult[0].candidates.length, 0)
+
+  const fitnessResult = rankContextNodes(
+    "fitness tracking and workout goals",
+    foodDeliveryMemory
+  )
+  assert.equal(fitnessResult.length, 0)
+
+  const healthMemory = [{
+    field_path: "health.activity_log",
+    value: "Outdoor Run",
+    category: "health",
+    relevance_vectors: { food_delivery: 0.9 }
+  }]
+
+  const foodResult = matchContextFields(
+    [{ description: "food delivery dinner order" }],
+    healthMemory,
+    { requestedCategory: "food-delivery" }
+  )
+  assert.equal(foodResult[0].candidates.length, 0)
+})
+
 test("cross-category relevance ranking engine ranks candidates globally", () => {
   const memories = [
     { field_path: "diet.preference", value: "vegan", category: "diet" },

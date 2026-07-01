@@ -16,6 +16,9 @@ const DEVELOPER_TOOL_TERMS = [
   "source control"
 ];
 
+const FOOD_DELIVERY_DOMAIN = new Set(["food-delivery", "food_delivery", "fooddelivery", "shopping.food_delivery"]);
+const HEALTH_FITNESS_DOMAIN = new Set(["health", "fitness", "health.fitness", "health_fitness", "healthfitness"]);
+
 export class LocalContextMatcher {
   constructor({ threshold = 0.12, minimumThreshold = null } = {}) {
     this.threshold = Number(threshold);
@@ -95,6 +98,15 @@ export function anonymizePrivateIdentities(text = "") {
 
 function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, requestedCategory = null) {
   const fieldPath = String(memory.field_path || memory.path || "");
+  if (isPartitionedDomainConflict(requestedCategory, requestText, memory)) {
+    return {
+      memory,
+      score: 0,
+      reasons: ["cross-domain partition blocked"],
+      sensitivity: "low",
+      requires_approval: false
+    };
+  }
   if (isShoppingIntent(requestText, requestedCategory) && isDeveloperToolContext(memory)) {
     return {
       memory,
@@ -258,6 +270,41 @@ function isDeveloperToolContext(memory = {}) {
   return DEVELOPER_TOOL_TERMS.some((term) => searchable.includes(term));
 }
 
+function isPartitionedDomainConflict(requestedCategory, requestText, memory = {}, inferredCategories = null) {
+  const queryDomains = new Set();
+  const normalizedRequested = normalizeDomainKey(requestedCategory);
+  if (normalizedRequested) queryDomains.add(normalizedRequested);
+
+  if (inferredCategories instanceof Set) {
+    for (const category of inferredCategories) {
+      const normalized = normalizeDomainKey(category);
+      if (normalized) queryDomains.add(normalized);
+    }
+  }
+
+  const text = String(requestText || "").toLowerCase();
+  if (/\b(food delivery|takeout|delivery order|restaurant|meal order|food order|eat out|zomato|swiggy|ubereats)\b/i.test(text)) {
+    queryDomains.add("food-delivery");
+  }
+  if (/\b(health|fitness|wellness|medical|insurance|benefits|workout|exercise|gym|run)\b/i.test(text)) {
+    queryDomains.add("health-fitness");
+  }
+
+  const memoryDomain = normalizeDomainKey(memory.category || memory.field_path || memory.path || "");
+  if (!memoryDomain) return false;
+
+  const queryHasFoodDelivery = queryDomains.has("food-delivery");
+  const queryHasHealthFitness = queryDomains.has("health-fitness");
+  const memoryIsFoodDelivery = FOOD_DELIVERY_DOMAIN.has(memoryDomain);
+  const memoryIsHealthFitness = HEALTH_FITNESS_DOMAIN.has(memoryDomain);
+
+  return (queryHasFoodDelivery && memoryIsHealthFitness) || (queryHasHealthFitness && memoryIsFoodDelivery);
+}
+
+function normalizeDomainKey(value = "") {
+  return String(value).toLowerCase().trim().replace(/[^a-z0-9]+/g, "");
+}
+
 // Convert input value into clean tokenized stems
 export function tokens(value) {
   const rawTokens = normalize(value).split(/[.\s_-]+/).filter((token) => token.length >= 3 && !STOP_WORDS.has(token));
@@ -357,6 +404,7 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
     "food": ["food", "diet", "allergy", "restaurant", "dinner", "lunch", "meal", "eat", "cooking"],
     "diet": ["diet", "preference", "allergy", "vegetarian", "vegan", "gluten", "food"],
     "fitness": ["fitness", "workout", "gym", "exercise", "run", "training", "sports"],
+    "health": ["health", "wellness", "medical", "medicine", "insurance", "benefits", "clinic"],
     "shopping": ["shopping", "budget", "buy", "purchase", "price", "spend", "store", "laptop"],
     "learning": ["learning", "study", "course", "education", "tutorial", "exam"],
     "identity": ["identity", "name", "username", "profile", "language", "timezone"],
@@ -375,6 +423,13 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
   const scored = (Array.isArray(memoryRecords) ? memoryRecords : []).map((memory) => {
     const fieldPath = String(memory.field_path || memory.path || "");
     const category = String(memory.category || "").toLowerCase();
+    if (isPartitionedDomainConflict(null, taskText, memory, inferredCategories)) {
+      return {
+        memory,
+        score: 0,
+        reasons: ["cross-domain partition blocked"]
+      };
+    }
     if (isShoppingIntent(taskText, null, inferredCategories) && isDeveloperToolContext(memory)) {
       return {
         memory,
