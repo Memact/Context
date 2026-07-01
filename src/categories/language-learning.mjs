@@ -2,7 +2,7 @@ export const category = "language_learning";
 
 export const LANGUAGE_LEARNING_SCHEMA = {
   category: "language_learning",
-  description: "User-owned language learning preferences covering target languages, daily goals, and streaks.",
+  description: "User-owned language learning preferences covering target languages, daily goals, streaks, and regionalized (accent/dialect/locale) output settings.",
   product_rule: "Activity is not identity. A single short lesson in a new language should not permanently label the user as a learner of that language. Consistent streaks or explicit settings establish a durable target language.",
   sections: {
     goals: {
@@ -15,6 +15,18 @@ export const LANGUAGE_LEARNING_SCHEMA = {
         daily_duration_goal_mins: {
           type: "Number",
           sensitive: false
+        },
+
+        // Dialect / accent / locale preferences.
+        // Hierarchy (durability): explicit_* wins over inferred_*; activity_* is held for review.
+        dialect_preferences: {
+          type: "Object",
+          sensitive: false
+        },
+        dialect_preference_hierarchy: {
+          type: "String",
+          sensitive: false,
+          description: "Explicit user dialect/locale > inferred durable dialect/locale > transient activity hints held for review."
         }
       }
     },
@@ -48,7 +60,8 @@ export const LANGUAGE_LEARNING_PERMISSIONS = [
 export const wikiEntryTemplates = [
   "You are currently learning [languages].",
   "Your daily study goal is [duration] minutes.",
-  "You are on a [streak]-day language learning streak!"
+  "You are on a [streak]-day language learning streak!",
+  "For your learning output, you prefer [dialect] (locale: [locale])."
 ];
 
 export const rawInputExamples = [
@@ -105,6 +118,51 @@ export function normalizeLanguageLearningContext(rawInput = {}) {
         reason: "A single lesson does not constitute a durable language learning commitment."
       });
     }
+  }
+
+  // Dialect / locale preference hierarchy
+  // Priority: explicit_* (durable win) > inferred_* (durable) > activity_* (held for review).
+  const hasExplicitLocale = typeof raw.explicit_locale === "string" && raw.explicit_locale.trim();
+  const hasExplicitDialect = typeof raw.explicit_dialect === "string" && raw.explicit_dialect.trim();
+  const hasInferredLocale = typeof raw.inferred_locale === "string" && raw.inferred_locale.trim();
+  const hasInferredDialect = typeof raw.inferred_dialect === "string" && raw.inferred_dialect.trim();
+
+  const hasActivityHintLocale = typeof raw.activity_locale_hint === "string" && raw.activity_locale_hint.trim();
+  const hasActivityHintDialect = typeof raw.activity_dialect_hint === "string" && raw.activity_dialect_hint.trim();
+
+  const anyActivityDialectHint = hasActivityHintLocale || hasActivityHintDialect;
+
+  if (hasExplicitLocale || hasExplicitDialect) {
+    goals.dialect_preferences = {
+      ...(hasExplicitLocale ? { target_locale: String(raw.explicit_locale).trim() } : {}),
+      ...(hasExplicitDialect ? { preferred_dialect: String(raw.explicit_dialect).trim() } : {}),
+      source: "explicit_user"
+    };
+    goals.dialect_preference_hierarchy = "explicit > inferred > activity";
+  } else if (hasInferredLocale || hasInferredDialect) {
+    goals.dialect_preferences = {
+      ...(hasInferredLocale ? { target_locale: String(raw.inferred_locale).trim() } : {}),
+      ...(hasInferredDialect ? { preferred_dialect: String(raw.inferred_dialect).trim() } : {}),
+      source: "inferred_durable"
+    };
+    goals.dialect_preference_hierarchy = "explicit > inferred > activity";
+  } else if (anyActivityDialectHint) {
+    // Hold for review (do not write into durable goals.dialect_preferences)
+    const hintValue = {
+      ...(hasActivityHintLocale ? { target_locale: String(raw.activity_locale_hint).trim() } : {}),
+      ...(hasActivityHintDialect ? { preferred_dialect: String(raw.activity_dialect_hint).trim() } : {})
+    };
+
+    pending_approval_queue.push({
+      field: "dialect_preferences",
+      value: hintValue,
+      sensitive: false,
+      reason: "Dialect/locale hints from a single activity are not durable; user confirmation is required."
+    });
+
+    dropped_fields.push("activity_locale_hint");
+    dropped_fields.push("activity_dialect_hint");
+    // Note: we keep the current behavioral drop_reason for any dropped_fields.
   }
 
   // Daily Goals
@@ -171,6 +229,21 @@ export function generateWikiEntries(normalizedContext = {}) {
       sub_type: "streak",
       proposed_text: `You are on a ${streak}-day language learning streak!`,
       confidence: 0.9,
+      requires_user_confirmation: false
+    });
+  }
+
+  const dialectPrefs = normalizedContext.goals?.dialect_preferences;
+  if (dialectPrefs && (dialectPrefs.target_locale || dialectPrefs.preferred_dialect)) {
+    const dialect = dialectPrefs.preferred_dialect || "your preferred dialect";
+    const locale = dialectPrefs.target_locale || "a regional variant";
+
+    proposals.push({
+      id: "wiki_language_dialect_preferences",
+      type: "preference",
+      sub_type: "dialect_preferences",
+      proposed_text: `For your learning output, you prefer ${dialect} (locale: ${locale}).`,
+      confidence: 0.8,
       requires_user_confirmation: false
     });
   }

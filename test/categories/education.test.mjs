@@ -48,4 +48,26 @@ describe('Education Category Schema & Normalization', () => {
     assert.strictEqual(normalized.visibility, 'private');
     assert.deepStrictEqual(normalized.data.preferred_study_formats, ['coding sandboxes']);
   });
+
+  it('should treat explicit dialect/locale preferences as durable', () => {
+    const rawPreference = {
+      source: 'user_profile',
+      type: 'preference',
+      explicit: true,
+      data: {
+        dialect_preferences: {
+          target_locale: 'en-GB',
+          preferred_dialect: 'British English',
+          regional_variant: 'use UK spellings'
+        }
+      }
+    };
+
+    const normalized = educationSchema.normalizeEducationContext(rawPreference);
+
+    assert.strictEqual(normalized.observation_type, 'explicit_preference');
+    assert.strictEqual(normalized.is_identity_claim, true);
+    assert.deepStrictEqual(normalized.data.dialect_preferences.target_locale, 'en-GB');
+    assert.strictEqual(normalized.needs_review, false);
+  });
 });

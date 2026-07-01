@@ -60,3 +60,34 @@ test("repeated lessons solidify durable interest", () => {
   assert.equal(normalized.progress.active_streak_days, 3);
   assert.equal(normalized.dropped_fields.length, 0);
 });
+
+test("dialect/locale hierarchy: explicit wins over activity hints", () => {
+  const normalized = normalizeLanguageLearningContext({
+    explicit_targets: ["Spanish"],
+    daily_goal_mins: 10,
+    current_streak: 2,
+
+    explicit_locale: "en-US",
+    activity_locale_hint: "en-GB",
+
+    activity_dialect_hint: "British English"
+  });
+
+  assert.equal(normalized.goals.dialect_preferences.target_locale, "en-US");
+  assert.ok(normalized.dropped_fields.length === 0 || !normalized.dropped_fields.includes("activity_locale_hint"));
+  assert.equal(normalized.pending_approval_queue.length, 0);
+});
+
+test("dialect/locale hierarchy: activity hints are held for review", () => {
+  const normalized = normalizeLanguageLearningContext({
+    recent_lesson_language: "French",
+    total_lessons_completed: 1,
+    current_streak: 1,
+
+    activity_locale_hint: "fr-FR",
+    activity_dialect_hint: "Parisian French"
+  });
+
+  assert.equal(normalized.goals.dialect_preferences, undefined);
+  assert.ok(normalized.pending_approval_queue.some((q) => q.field === "dialect_preferences"));
+});
