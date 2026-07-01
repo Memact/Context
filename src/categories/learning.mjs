@@ -1,9 +1,11 @@
-export const category = "learning"
+import { checkOverconfidentInferences } from "./validation-helper.mjs";
 
-const STABLE_PREFERRED_FORMATS = new Set(["text", "video", "quiz", "project", "mixed"])
-const STABLE_PREFERRED_PACES = new Set(["slow", "moderate", "fast", "self-directed"])
-const STABLE_EXPLANATION_STYLES = new Set(["conceptual", "example-first", "step-by-step", "visual", "socratic"])
-const SESSION_LENGTH_LABELS = new Set(["short", "medium", "long"])
+export const category = "learning";
+
+const STABLE_PREFERRED_FORMATS = new Set(["text", "video", "quiz", "project", "mixed"]);
+const STABLE_PREFERRED_PACES = new Set(["slow", "moderate", "fast", "self-directed"]);
+const STABLE_EXPLANATION_STYLES = new Set(["conceptual", "example-first", "step-by-step", "visual", "socratic"]);
+const SESSION_LENGTH_LABELS = new Set(["short", "medium", "long"]);
 
 export const LEARNING_SCHEMA = {
   category: "learning",
@@ -86,7 +88,7 @@ export const LEARNING_SCHEMA = {
       }
     }
   }
-}
+};
 
 export const LEARNING_PERMISSIONS = [
   {
@@ -117,13 +119,13 @@ export const LEARNING_PERMISSIONS = [
     requires_explicit_wiki_approval: true,
     expires_on_goal_completion: true
   }
-]
+];
 
 export const wikiEntryTemplates = [
   "You're currently working through **[topic]** as part of your goal to [study_goal]. You've completed [N] lessons so far and have been on a [streak]-day streak.",
   "You tend to learn best with [preferred_format] content at a [preferred_pace] pace, preferring [explanation_style] explanations.",
   "You've revisited **[topic]** a few times recently — you may want to spend more time here or try a different format."
-]
+];
 
 export const rawInputExamples = [
   {
@@ -145,7 +147,7 @@ export const rawInputExamples = [
     dropout_risk_score: 0.7,
     next_recommended: "window-functions"
   }
-]
+];
 
 export const normalizedOutputExamples = [
   {
@@ -175,56 +177,47 @@ export const normalizedOutputExamples = [
     dropped_fields: ["dropout_risk_score"],
     drop_reason: "Model inference about user risk not surfaced to user without explicit consent."
   }
-]
+];
 
-const OVERCONFIDENT_FIELDS = new Set(["badge", "dropout_risk_score"])
+const OVERCONFIDENT_FIELDS = new Set(["badge", "dropout_risk_score"]);
 
 export function normalizeLearningContext(rawInput = {}) {
-  const raw = isObject(rawInput) ? rawInput : {}
-  const stable_preferences = {}
-  const current_goals = {}
-  const pending_approval = []
-  const dropped_fields = []
-  const validation_issues = []
+  const raw = isObject(rawInput) ? rawInput : {};
+  const stable_preferences = {};
+  const current_goals = {};
+  const pending_approval = [];
+  
+  // Use the newly implemented categorized validation helper decorator
+  const { validation_issues, dropped_fields } = checkOverconfidentInferences(raw, OVERCONFIDENT_FIELDS);
 
-  const preferredFormat = normalizePreferredFormat(raw)
-  if (preferredFormat) stable_preferences.preferred_format = preferredFormat
+  const preferredFormat = normalizePreferredFormat(raw);
+  if (preferredFormat) stable_preferences.preferred_format = preferredFormat;
 
-  const preferredPace = normalizePreferredPace(raw)
-  if (preferredPace) stable_preferences.preferred_pace = preferredPace
+  const preferredPace = normalizePreferredPace(raw);
+  if (preferredPace) stable_preferences.preferred_pace = preferredPace;
 
-  const explanationStyle = normalizeExplanationStyle(raw)
-  if (explanationStyle) stable_preferences.explanation_style = explanationStyle
+  const explanationStyle = normalizeExplanationStyle(raw);
+  if (explanationStyle) stable_preferences.explanation_style = explanationStyle;
 
-  const sessionLengthPreference = normalizeSessionLengthPreference(raw)
-  if (sessionLengthPreference) stable_preferences.session_length_preference = sessionLengthPreference
+  const sessionLengthPreference = normalizeSessionLengthPreference(raw);
+  if (sessionLengthPreference) stable_preferences.session_length_preference = sessionLengthPreference;
 
-  const activeTopics = normalizeActiveTopics(raw)
-  if (activeTopics.length) current_goals.active_topics = activeTopics
+  const activeTopics = normalizeActiveTopics(raw);
+  if (activeTopics.length) current_goals.active_topics = activeTopics;
 
-  const currentDifficulty = normalizeCurrentDifficulty(raw)
-  if (Object.keys(currentDifficulty).length) current_goals.current_difficulty = currentDifficulty
+  const currentDifficulty = normalizeCurrentDifficulty(raw);
+  if (Object.keys(currentDifficulty).length) current_goals.current_difficulty = currentDifficulty;
 
-  const studyGoals = normalizeStudyGoals(raw)
-  if (studyGoals) current_goals.study_goals = studyGoals
+  const studyGoals = normalizeStudyGoals(raw);
+  if (studyGoals) current_goals.study_goals = studyGoals;
 
-  const completedLessons = normalizeCompletedLessons(raw)
-  if (completedLessons.length) current_goals.completed_lessons = completedLessons
+  const completedLessons = normalizeCompletedLessons(raw);
+  if (completedLessons.length) current_goals.completed_lessons = completedLessons;
 
-  const streak = normalizeSessionStreak(raw)
-  if (streak !== null) current_goals.session_streak = streak
+  const streak = normalizeSessionStreak(raw);
+  if (streak !== null) current_goals.session_streak = streak;
 
-  for (const field of OVERCONFIDENT_FIELDS) {
-    if (Object.hasOwn(raw, field)) {
-      dropped_fields.push(field)
-      validation_issues.push({
-        field,
-        reason: "overconfident_inference"
-      })
-    }
-  }
-
-  const repeatedMistakes = normalizeStringArray(raw.repeated_mistakes)
+  const repeatedMistakes = normalizeStringArray(raw.repeated_mistakes);
   if (repeatedMistakes.length) {
     pending_approval.push({
       field: "repeated_mistakes",
@@ -233,10 +226,10 @@ export function normalizeLearningContext(rawInput = {}) {
       scope: "current_goal",
       source: "app_signal",
       expires_on_goal_completion: true
-    })
+    });
   }
 
-  const weakAreas = normalizeStringArray(raw.weak_areas)
+  const weakAreas = normalizeStringArray(raw.weak_areas);
   if (weakAreas.length) {
     pending_approval.push({
       field: "weak_areas",
@@ -245,10 +238,10 @@ export function normalizeLearningContext(rawInput = {}) {
       scope: "current_goal",
       source: "app_signal",
       expires_on_goal_completion: true
-    })
+    });
   }
 
-  const confusionSignals = normalizeConfusionSignalObjects(raw.confusion_signals)
+  const confusionSignals = normalizeConfusionSignalObjects(raw.confusion_signals);
   if (confusionSignals.length) {
     pending_approval.push({
       field: "confusion_signals",
@@ -257,12 +250,12 @@ export function normalizeLearningContext(rawInput = {}) {
       scope: "current_goal",
       source: "app_signal",
       expires_on_goal_completion: true
-    })
+    });
   }
 
-  if (Object.hasOwn(raw, "failed_cards")) dropped_fields.push("failed_cards")
+  if (Object.hasOwn(raw, "failed_cards")) dropped_fields.push("failed_cards");
 
-  const drop_reason = buildDropReason(dropped_fields, validation_issues, pending_approval)
+  const drop_reason = buildDropReason(dropped_fields, validation_issues, pending_approval);
 
   return {
     category: "learning",
@@ -274,7 +267,7 @@ export function normalizeLearningContext(rawInput = {}) {
     validation: validation_issues.length
       ? { ok: false, reason: "overconfident_inference", issues: validation_issues }
       : { ok: true }
-  }
+  };
 }
 
 export function generateWikiEntries(normalizedContext = {}) {
@@ -337,265 +330,265 @@ export function validateLearningContext(input = {}) {
 }
 
 function normalizePreferredFormat(raw) {
-  if (STABLE_PREFERRED_FORMATS.has(raw.preferred_format)) return raw.preferred_format
-  if (raw.preferred_card_type === "code-snippet" || raw.preferred_card_type === "quiz") return "quiz"
-  if (Array.isArray(raw.completed_videos) && raw.completed_videos.length) return "video"
-  if (raw.content_type && STABLE_PREFERRED_FORMATS.has(raw.content_type)) return raw.content_type
-  return null
+  if (STABLE_PREFERRED_FORMATS.has(raw.preferred_format)) return raw.preferred_format;
+  if (raw.preferred_card_type === "code-snippet" || raw.preferred_card_type === "quiz") return "quiz";
+  if (Array.isArray(raw.completed_videos) && raw.completed_videos.length) return "video";
+  if (raw.content_type && STABLE_PREFERRED_FORMATS.has(raw.content_type)) return raw.content_type;
+  return null;
 }
 
 function normalizePreferredPace(raw) {
-  if (STABLE_PREFERRED_PACES.has(raw.preferred_pace)) return raw.preferred_pace
+  if (STABLE_PREFERRED_PACES.has(raw.preferred_pace)) return raw.preferred_pace;
   if (typeof raw.speed_setting === "number") {
-    if (raw.speed_setting >= 1.25) return "fast"
-    if (raw.speed_setting <= 0.85) return "slow"
-    return "moderate"
+    if (raw.speed_setting >= 1.25) return "fast";
+    if (raw.speed_setting <= 0.85) return "slow";
+    return "moderate";
   }
-  return null
+  return null;
 }
 
 function normalizeExplanationStyle(raw) {
-  if (STABLE_EXPLANATION_STYLES.has(raw.explanation_style)) return raw.explanation_style
-  if (raw.preferred_card_type === "code-snippet") return "example-first"
-  if (raw.preferred_card_type === "flashcard") return "step-by-step"
-  return null
+  if (STABLE_EXPLANATION_STYLES.has(raw.explanation_style)) return raw.explanation_style;
+  if (raw.preferred_card_type === "code-snippet") return "example-first";
+  if (raw.preferred_card_type === "flashcard") return "step-by-step";
+  return null;
 }
 
 function normalizeSessionLengthPreference(raw) {
-  if (SESSION_LENGTH_LABELS.has(raw.session_length_preference)) return raw.session_length_preference
-  const minutes = Number(raw.last_session_duration_mins)
-  if (!Number.isFinite(minutes)) return null
-  if (minutes < 15) return "short"
-  if (minutes > 45) return "long"
-  return null
+  if (SESSION_LENGTH_LABELS.has(raw.session_length_preference)) return raw.session_length_preference;
+  const minutes = Number(raw.last_session_duration_mins);
+  if (!Number.isFinite(minutes)) return null;
+  if (minutes < 15) return "short";
+  if (minutes > 45) return "long";
+  return null;
 }
 
 function normalizeActiveTopics(raw) {
-  const topics = []
-  const quizScores = isObject(raw.quiz_scores) ? raw.quiz_scores : {}
+  const topics = [];
+  const quizScores = isObject(raw.quiz_scores) ? raw.quiz_scores : {};
 
   normalizeStringArray(raw.topics_viewed).forEach((topic) => {
-    const normalized = normalizeTopicLabel(topic)
-    const lowerTopic = topic.toLowerCase()
-    const score = Number(quizScores[topic] ?? quizScores[normalized] ?? quizScores[lowerTopic])
-    if (Number.isFinite(score) && score > 0.8) return
-    topics.push(normalized)
-  })
+    const normalized = normalizeTopicLabel(topic);
+    const lowerTopic = topic.toLowerCase();
+    const score = Number(quizScores[topic] ?? quizScores[normalized] ?? quizScores[lowerTopic]);
+    if (Number.isFinite(score) && score > 0.8) return;
+    topics.push(normalized);
+  });
 
   normalizeStringArray(raw.enrolled_courses).forEach((course) => {
-    const normalized = normalizeCourseTopic(course)
-    if (normalized) topics.push(normalized)
-  })
+    const normalized = normalizeCourseTopic(course);
+    if (normalized) topics.push(normalized);
+  });
 
   if (typeof raw.next_recommended === "string") {
-    topics.push(normalizeTopicLabel(raw.next_recommended))
+    topics.push(normalizeTopicLabel(raw.next_recommended));
   }
 
-  return unique(topics.filter(Boolean))
+  return unique(topics.filter(Boolean));
 }
 
 function normalizeCurrentDifficulty(raw) {
-  const difficulty = {}
+  const difficulty = {};
 
-  const quizScores = isObject(raw.quiz_scores) ? raw.quiz_scores : {}
+  const quizScores = isObject(raw.quiz_scores) ? raw.quiz_scores : {};
   for (const [topic, scoreValue] of Object.entries(quizScores)) {
-    const score = Number(scoreValue)
-    if (!Number.isFinite(score) || score > 0.8) continue
-    difficulty[normalizeTopicLabel(topic)] = scoreToDifficulty(score)
+    const score = Number(scoreValue);
+    if (!Number.isFinite(score) || score > 0.8) continue;
+    difficulty[normalizeTopicLabel(topic)] = scoreToDifficulty(score);
   }
 
   normalizeStringArray(raw.failed_cards).forEach((card) => {
-    const topic = normalizeTopicLabel(card)
-    difficulty[topic] ||= "intermediate"
-  })
+    const topic = normalizeTopicLabel(card);
+    difficulty[topic] ||= "intermediate";
+  });
 
-  return difficulty
+  return difficulty;
 }
 
 function normalizeStudyGoals(raw) {
-  if (typeof raw.study_goals === "string" && raw.study_goals.trim()) return raw.study_goals.trim()
-  if (typeof raw.study_goal === "string" && raw.study_goal.trim()) return raw.study_goal.trim()
-  if (typeof raw.goal === "string" && raw.goal.trim()) return raw.goal.trim()
-  return null
+  if (typeof raw.study_goals === "string" && raw.study_goals.trim()) return raw.study_goals.trim();
+  if (typeof raw.study_goal === "string" && raw.study_goal.trim()) return raw.study_goal.trim();
+  if (typeof raw.goal === "string" && raw.goal.trim()) return raw.goal.trim();
+  return null;
 }
 
 function normalizeCompletedLessons(raw) {
-  const lessons = []
-  normalizeStringArray(raw.completed_lessons).forEach((lesson) => lessons.push(lesson))
-  normalizeStringArray(raw.completed_videos).forEach((lesson) => lessons.push(lesson))
-  return unique(lessons)
+  const lessons = [];
+  normalizeStringArray(raw.completed_lessons).forEach((lesson) => lessons.push(lesson));
+  normalizeStringArray(raw.completed_videos).forEach((lesson) => lessons.push(lesson));
+  return unique(lessons);
 }
 
 function normalizeConfusionSignalObjects(value) {
-  if (!Array.isArray(value)) return []
+  if (!Array.isArray(value)) return [];
   return value
     .map((item) => {
-      if (!isObject(item)) return null
-      const topic = typeof item.topic === "string" ? item.topic.trim() : ""
-      const type = typeof item.type === "string" ? item.type.trim() : ""
-      if (!topic && !type) return null
+      if (!isObject(item)) return null;
+      const topic = typeof item.topic === "string" ? item.topic.trim() : "";
+      const type = typeof item.type === "string" ? item.type.trim() : "";
+      if (!topic && !type) return null;
       return {
         ...(topic ? { topic: normalizeTopicLabel(topic) } : {}),
         ...(type ? { type } : {})
-      }
+      };
     })
-    .filter(Boolean)
+    .filter(Boolean);
 }
 
 function normalizeSessionStreak(raw) {
-  if (raw.session_streak !== undefined) return numberOrNull(raw.session_streak)
-  if (raw.streak !== undefined) return numberOrNull(raw.streak)
-  return null
+  if (raw.session_streak !== undefined) return numberOrNull(raw.session_streak);
+  if (raw.streak !== undefined) return numberOrNull(raw.streak);
+  return null;
 }
 
 function normalizeCourseTopic(course) {
-  const text = String(course || "").trim()
-  if (!text) return null
+  const text = String(course || "").trim();
+  if (!text) return null;
 
-  if (/^sql\b/i.test(text)) return "SQL"
-  if (/data\s+eng/i.test(text)) return "Data Engineering"
-  if (/react\s+hooks?/i.test(text)) return "React hooks"
-  if (/closures?/i.test(text)) return "closures"
+  if (/^sql\b/i.test(text)) return "SQL";
+  if (/data\s+eng/i.test(text)) return "Data Engineering";
+  if (/react\s+hooks?/i.test(text)) return "React hooks";
+  if (/closures?/i.test(text)) return "closures";
 
-  return normalizeTopicLabel(text.replace(/\b(mastery|bootcamp|course|tutorial|series)\b/gi, "").trim())
+  return normalizeTopicLabel(text.replace(/\b(mastery|bootcamp|course|tutorial|series)\b/gi, "").trim());
 }
 
 function normalizeTopicLabel(value) {
-  const text = String(value || "").trim()
-  if (!text) return ""
+  const text = String(value || "").trim();
+  if (!text) return "";
 
-  if (/^sql\b/i.test(text)) return "SQL"
-  if (/data\s+eng/i.test(text)) return "Data Engineering"
-  if (/useeffect/i.test(text)) return "useEffect"
-  if (/react hooks?/i.test(text)) return "React hooks"
-  if (/closure/i.test(text)) return "closures"
+  if (/^sql\b/i.test(text)) return "SQL";
+  if (/data\s+eng/i.test(text)) return "Data Engineering";
+  if (/useeffect/i.test(text)) return "useEffect";
+  if (/react hooks?/i.test(text)) return "React hooks";
+  if (/closure/i.test(text)) return "closures";
 
   return text
     .replace(/[_-]+/g, " ")
     .replace(/\bwindow functions?\b/i, "window functions")
     .replace(/\s+/g, " ")
-    .trim()
+    .trim();
 }
 
 function scoreToDifficulty(score) {
-  if (score < 0.35) return "beginner"
-  if (score < 0.85) return "intermediate"
-  return "advanced"
+  if (score < 0.35) return "beginner";
+  if (score < 0.85) return "intermediate";
+  return "advanced";
 }
 
 function buildPreferenceText(stablePreferences) {
-  const format = stablePreferences.preferred_format
-  const pace = stablePreferences.preferred_pace
-  const style = stablePreferences.explanation_style
-  const sessionLength = formatSessionLength(stablePreferences.session_length_preference)
+  const format = stablePreferences.preferred_format;
+  const pace = stablePreferences.preferred_pace;
+  const style = stablePreferences.explanation_style;
+  const sessionLength = formatSessionLength(stablePreferences.session_length_preference);
 
   if (format && pace && style && sessionLength) {
-    return `You tend to learn best with ${format} content at a ${pace} pace, preferring ${style} explanations, and ${sessionLength}.`
+    return `You tend to learn best with ${format} content at a ${pace} pace, preferring ${style} explanations, and ${sessionLength}.`;
   }
   if (format && pace && style) {
-    return `You tend to learn best with ${format} content at a ${pace} pace, preferring ${style} explanations.`
+    return `You tend to learn best with ${format} content at a ${pace} pace, preferring ${style} explanations.`;
   }
   if (format && style && sessionLength) {
-    return `You tend to learn best with ${format} content, preferring ${style} explanations, and ${sessionLength}.`
+    return `You tend to learn best with ${format} content, preferring ${style} explanations, and ${sessionLength}.`;
   }
   if (format && style) {
-    return `You tend to learn best with ${format} content, preferring ${style} explanations.`
+    return `You tend to learn best with ${format} content, preferring ${style} explanations.`;
   }
   if (format && pace && sessionLength) {
-    return `You tend to learn best with ${format} content at a ${pace} pace, and ${sessionLength}.`
+    return `You tend to learn best with ${format} content at a ${pace} pace, and ${sessionLength}.`;
   }
   if (format && pace) {
-    return `You tend to learn best with ${format} content at a ${pace} pace.`
+    return `You tend to learn best with ${format} content at a ${pace} pace.`;
   }
   if (pace && style && sessionLength) {
-    return `You tend to learn best with a ${pace} pace, preferring ${style} explanations, and ${sessionLength}.`
+    return `You tend to learn best with a ${pace} pace, preferring ${style} explanations, and ${sessionLength}.`;
   }
   if (pace && style) {
-    return `You tend to learn best with a ${pace} pace, preferring ${style} explanations.`
+    return `You tend to learn best with a ${pace} pace, preferring ${style} explanations.`;
   }
   if (format && sessionLength) {
-    return `You tend to learn best with ${format} content and ${sessionLength}.`
+    return `You tend to learn best with ${format} content and ${sessionLength}.`;
   }
   if (pace && sessionLength) {
-    return `You tend to learn best with a ${pace} pace and ${sessionLength}.`
+    return `You tend to learn best with a ${pace} pace and ${sessionLength}.`;
   }
   if (style && sessionLength) {
-    return `You tend to learn best with ${style} explanations and ${sessionLength}.`
+    return `You tend to learn best with ${style} explanations and ${sessionLength}.`;
   }
-  if (format) return `You tend to learn best with ${format} content.`
-  if (pace) return `You tend to learn best with a ${pace} pace.`
-  if (style) return `You tend to learn best with ${style} explanations.`
-  if (sessionLength) return `You tend to learn best with ${sessionLength}.`
-  return "You have not shared a clear learning preference yet."
+  if (format) return `You tend to learn best with ${format} content.`;
+  if (pace) return `You tend to learn best with a ${pace} pace.`;
+  if (style) return `You tend to learn best with ${style} explanations.`;
+  if (sessionLength) return `You tend to learn best with ${sessionLength}.`;
+  return "You have not shared a clear learning preference yet.";
 }
 
 function formatSessionLength(length) {
-  if (length === "short") return "short sessions"
-  if (length === "medium") return "medium-length sessions"
-  if (length === "long") return "long sessions"
-  return null
+  if (length === "short") return "short sessions";
+  if (length === "medium") return "medium-length sessions";
+  if (length === "long") return "long sessions";
+  return null;
 }
 
 function buildGoalText(topic, studyGoal, lessonCount, streak) {
-  const goalText = studyGoal ? ` as part of your goal to ${studyGoal}` : ""
-  return `You're currently working through **${topic}**${goalText}. You've completed ${lessonCount} lessons so far and have been on a ${streak}-day streak.`
+  const goalText = studyGoal ? ` as part of your goal to ${studyGoal}` : "";
+  return `You're currently working through **${topic}**${goalText}. You've completed ${lessonCount} lessons so far and have been on a ${streak}-day streak.`;
 }
 
 function buildProgressText(item) {
-  const topic = extractSignalTopic(item)
-  return `You've revisited **${topic}** a few times recently — you may want to spend more time here or try a different format.`
+  const topic = extractSignalTopic(item);
+  return `You've revisited **${topic}** a few times recently — you may want to spend more time here or try a different format.`;
 }
 
 function extractSignalTopic(item) {
-  const firstValue = Array.isArray(item.value) ? item.value[0] : null
-  if (typeof firstValue === "string" && firstValue.trim()) return normalizeTopicLabel(firstValue)
+  const firstValue = Array.isArray(item.value) ? item.value[0] : null;
+  if (typeof firstValue === "string" && firstValue.trim()) return normalizeTopicLabel(firstValue);
   if (isObject(firstValue) && typeof firstValue.topic === "string" && firstValue.topic.trim()) {
-    return normalizeTopicLabel(firstValue.topic)
+    return normalizeTopicLabel(firstValue.topic);
   }
-  if (typeof item.topic === "string" && item.topic.trim()) return normalizeTopicLabel(item.topic)
-  return "this topic"
+  if (typeof item.topic === "string" && item.topic.trim()) return normalizeTopicLabel(item.topic);
+  return "this topic";
 }
 
 function buildDropReason(droppedFields, validationIssues, pendingApproval) {
   if (validationIssues.some((issue) => issue.field === "dropout_risk_score")) {
-    return "Model inference about user risk not surfaced to user without explicit consent."
+    return "Model inference about user risk not surfaced to user without explicit consent.";
   }
 
   if (validationIssues.some((issue) => issue.field === "badge")) {
-    return "Overconfident permanent labels. Retained as ephemeral signals only if user approves Wiki entry."
+    return "Overconfident permanent labels. Retained as ephemeral signals only if user approves Wiki entry.";
   }
 
   if (pendingApproval.length) {
-    return "Temporary learning signals were held for user approval and are not stored as permanent traits."
+    return "Temporary learning signals were held for user approval and are not stored as permanent traits.";
   }
 
   if (droppedFields.length) {
-    return "Non-permanent learning signals were dropped from the stored profile."
+    return "Non-permanent learning signals were dropped from the stored profile.";
   }
 
-  return null
+  return null;
 }
 
 function normalizeStringArray(value) {
-  return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : []
+  return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
 }
 
 function numberOrNull(value) {
-  const num = Number(value)
-  return Number.isFinite(num) ? num : null
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
 }
 
 function unique(values) {
-  return [...new Set(values)]
+  return [...new Set(values)];
 }
 
 function isObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function slugify(value) {
   return String(value || "topic")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "") || "topic"
+    .replace(/^_+|_+$/g, "") || "topic";
 }
