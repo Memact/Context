@@ -45,8 +45,11 @@ export function createContextMatcher(options = {}) {
 
 export function matchContextFields(requestedContext = [], memoryRecords = [], options = {}) {
   const baseThreshold = Number(options.threshold ?? 0.12);
-  const sessionMinimumThreshold = resolveMinimumThreshold(options);
   const requestedCategory = options.requestedCategory || null;
+
+  // Allow appClass-specific minimum threshold floors.
+  const sessionMinimumThreshold = resolveMinimumThreshold(options, requestedCategory);
+
 
   return (Array.isArray(requestedContext) ? requestedContext : []).map((requestedItem) => {
     const requestText = requestToText(requestedItem);
@@ -215,27 +218,77 @@ function requestToText(item) {
   return [item?.description, item?.field_hint, item?.category_hint, item?.name].filter(Boolean).join(" ");
 }
 
-function resolveMinimumThreshold(options = {}) {
+function resolveMinimumThreshold(options = {}, requestedCategory = null) {
+  // Supports:
+  // - global/session minimum threshold (existing behavior)
+  // - per-app-class minimum threshold floors
+  //   * options.minimumThresholdByAppClass / minimumThresholdByCategory
+  //   * options.appClassMinimumThresholds
+  //   * options.minimumThresholdByRequestedCategory
+
   const candidates = [
     options.minimumThreshold,
     options.minThreshold,
     options.minimumMatchingThreshold,
+
     options.session?.minimumThreshold,
     options.session?.minThreshold,
     options.session?.minimumMatchingThreshold,
+
     options.querySession?.minimumThreshold,
     options.querySession?.minThreshold,
     options.querySession?.minimumMatchingThreshold,
-    options.query_session?.minimum_threshold,
+
+    options.query_session?.minimumThreshold,
     options.query_session?.min_threshold,
     options.query_session?.minimum_matching_threshold,
+
     options.sessionConfig?.minimumThreshold,
     options.sessionConfig?.minThreshold,
     options.sessionConfig?.minimumMatchingThreshold,
+
     options.session_config?.minimum_threshold,
     options.session_config?.min_threshold,
-    options.session_config?.minimum_matching_threshold
+    options.session_config?.minimum_matching_threshold,
+
+    // per-app-class floors
+    ...(options.minimumThresholdByAppClass
+      ? [
+          options.minimumThresholdByAppClass[requestedCategory] ??
+            options.minimumThresholdByAppClass?.[String(requestedCategory || "").toLowerCase()] ??
+            options.minimumThresholdByAppClass?.[String(requestedCategory || "").trim()] ??
+            options.minimumThresholdByAppClass?.default,
+        ]
+      : []),
+
+    ...(options.minimumThresholdByCategory
+      ? [
+          options.minimumThresholdByCategory[requestedCategory] ??
+            options.minimumThresholdByCategory?.[String(requestedCategory || "").toLowerCase()] ??
+            options.minimumThresholdByCategory?.[String(requestedCategory || "").trim()] ??
+            options.minimumThresholdByCategory?.default,
+        ]
+      : []),
+
+    ...(options.appClassMinimumThresholds
+      ? [
+          options.appClassMinimumThresholds[requestedCategory] ??
+            options.appClassMinimumThresholds?.[String(requestedCategory || "").toLowerCase()] ??
+            options.appClassMinimumThresholds?.[String(requestedCategory || "").trim()] ??
+            options.appClassMinimumThresholds?.default,
+        ]
+      : []),
+
+    ...(options.minimumThresholdByRequestedCategory
+      ? [
+          options.minimumThresholdByRequestedCategory[requestedCategory] ??
+            options.minimumThresholdByRequestedCategory?.[String(requestedCategory || "").toLowerCase()] ??
+            options.minimumThresholdByRequestedCategory?.[String(requestedCategory || "").trim()] ??
+            options.minimumThresholdByRequestedCategory?.default,
+        ]
+      : []),
   ];
+
 
   for (const candidate of candidates) {
     const threshold = Number(candidate);

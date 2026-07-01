@@ -211,6 +211,35 @@ test("context matcher respects a per-session minimum threshold floor", () => {
   assert.equal(sessionCappedResult[0].candidates.length, 0)
 })
 
+test("context matcher respects per-app-class minimum threshold floors", () => {
+  // Baseline minimum threshold (default 0.12) should allow this match
+  const baselineResult = matchContextFields(
+    [{ description: "diet preferences" }],
+    [{ field_path: "shopping.budget", relevance_vectors: { fitness: 0.15 }, category: "shopping" }],
+    {
+      requestedCategory: "fitness",
+      appClass: "fitness"
+    }
+  )
+  assert.equal(baselineResult[0].candidates.length, 1)
+
+  // Now cap via minimumThresholdByAppClass for appClass=fitness
+  const cappedResult = matchContextFields(
+    [{ description: "diet preferences" }],
+    [{ field_path: "shopping.budget", relevance_vectors: { fitness: 0.15 }, category: "shopping" }],
+    {
+      requestedCategory: "fitness",
+      appClass: "fitness",
+      minimumThresholdByAppClass: {
+        fitness: 0.16
+      }
+    }
+  )
+
+  assert.equal(cappedResult[0].candidates.length, 0)
+})
+
+
 test("context matcher isolates developer tool context from shopping queries", () => {
   const request = [{ description: "shopping for a laptop bag and retail accessories" }]
   const developerMemory = [{
