@@ -3,6 +3,22 @@ import { SYNONYM_TRIE, normalize, stem, STOP_WORDS, HIGH_SENSITIVITY_PREFIXES } 
 
 export { contextMatchingExamples } from "./synonym-registry.mjs";
 
+const DEVELOPER_TOOL_TERMS = [
+  "cursor",
+  "github",
+  "repository",
+  "repo",
+  "branch",
+  "pull request",
+  "commit",
+  "merge",
+  "vscode",
+  "source control"
+];
+
+const FOOD_DELIVERY_DOMAIN = new Set(["food-delivery", "food_delivery", "fooddelivery", "shopping.food_delivery"]);
+const HEALTH_FITNESS_DOMAIN = new Set(["health", "fitness", "health.fitness", "health_fitness", "healthfitness"]);
+
 export class LocalContextMatcher {
   constructor({ threshold = 0.12, minimumThreshold = null } = {}) {
     this.threshold = Number(threshold);
@@ -58,7 +74,7 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
         const confidence = memory && typeof memory.confidence === "number" ? memory.confidence : 1.0;
         return confidence >= 0.2;
       })
-      .map((memory) => scoreMemory(requestTokens, synonymFields, memory, itemCategory))
+      .map((memory) => scoreMemory(requestText, requestTokens, synonymFields, memory, itemCategory))
       .filter((candidate) => candidate.score >= itemThreshold)
       .sort((left, right) => right.score - left.score || String(left.memory.field_path || "").localeCompare(String(right.memory.field_path || "")));
       
@@ -80,8 +96,26 @@ export function anonymizePrivateIdentities(text = "") {
   });
 }
 
-function scoreMemory(requestTokens, synonymFields, memory = {}, requestedCategory = null) {
+function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, requestedCategory = null) {
   const fieldPath = String(memory.field_path || memory.path || "");
+  if (isPartitionedDomainConflict(requestedCategory, requestText, memory)) {
+    return {
+      memory,
+      score: 0,
+      reasons: ["cross-domain partition blocked"],
+      sensitivity: "low",
+      requires_approval: false
+    };
+  }
+  if (isShoppingIntent(requestText, requestedCategory) && isDeveloperToolContext(memory)) {
+    return {
+      memory,
+      score: 0,
+      reasons: ["developer tool context suppressed for shopping query"],
+      sensitivity: "low",
+      requires_approval: false
+    };
+  }
   
   // Protect personal information before tokenizing
   const rawValue = String(memory.value || "");
@@ -312,6 +346,7 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
     "food": ["food", "diet", "allergy", "restaurant", "dinner", "lunch", "meal", "eat", "cooking"],
     "diet": ["diet", "preference", "allergy", "vegetarian", "vegan", "gluten", "food"],
     "fitness": ["fitness", "workout", "gym", "exercise", "run", "training", "sports"],
+    "health": ["health", "wellness", "medical", "medicine", "insurance", "benefits", "clinic"],
     "shopping": ["shopping", "budget", "buy", "purchase", "price", "spend", "store", "laptop"],
     "learning": ["learning", "study", "course", "education", "tutorial", "exam"],
     "identity": ["identity", "name", "username", "profile", "language", "timezone"],
@@ -330,6 +365,20 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
   const scored = (Array.isArray(memoryRecords) ? memoryRecords : []).map((memory) => {
     const fieldPath = String(memory.field_path || memory.path || "");
     const category = String(memory.category || "").toLowerCase();
+    if (isPartitionedDomainConflict(null, taskText, memory, inferredCategories)) {
+      return {
+        memory,
+        score: 0,
+        reasons: ["cross-domain partition blocked"]
+      };
+    }
+    if (isShoppingIntent(taskText, null, inferredCategories) && isDeveloperToolContext(memory)) {
+      return {
+        memory,
+        score: 0,
+        reasons: ["developer tool context suppressed for shopping query"]
+      };
+    }
     
     const searchable = [
       fieldPath,
