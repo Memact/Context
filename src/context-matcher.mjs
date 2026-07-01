@@ -3,6 +3,19 @@ import { SYNONYM_TRIE, normalize, stem, STOP_WORDS, HIGH_SENSITIVITY_PREFIXES } 
 
 export { contextMatchingExamples } from "./synonym-registry.mjs";
 
+const DEVELOPER_TOOL_TERMS = [
+  "cursor",
+  "github",
+  "repository",
+  "repo",
+  "branch",
+  "pull request",
+  "commit",
+  "merge",
+  "vscode",
+  "source control"
+];
+
 export class LocalContextMatcher {
   constructor({ threshold = 0.12, minimumThreshold = null } = {}) {
     this.threshold = Number(threshold);
@@ -58,7 +71,7 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
         const confidence = memory && typeof memory.confidence === "number" ? memory.confidence : 1.0;
         return confidence >= 0.2;
       })
-      .map((memory) => scoreMemory(requestTokens, synonymFields, memory, itemCategory))
+      .map((memory) => scoreMemory(requestText, requestTokens, synonymFields, memory, itemCategory))
       .filter((candidate) => candidate.score >= itemThreshold)
       .sort((left, right) => right.score - left.score || String(left.memory.field_path || "").localeCompare(String(right.memory.field_path || "")));
       
@@ -80,8 +93,17 @@ export function anonymizePrivateIdentities(text = "") {
   });
 }
 
-function scoreMemory(requestTokens, synonymFields, memory = {}, requestedCategory = null) {
+function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, requestedCategory = null) {
   const fieldPath = String(memory.field_path || memory.path || "");
+  if (isShoppingIntent(requestText, requestedCategory) && isDeveloperToolContext(memory)) {
+    return {
+      memory,
+      score: 0,
+      reasons: ["developer tool context suppressed for shopping query"],
+      sensitivity: "low",
+      requires_approval: false
+    };
+  }
   
   // Protect personal information before tokenizing
   const rawValue = String(memory.value || "");
@@ -213,6 +235,29 @@ function resolveMinimumThreshold(options = {}) {
   return null;
 }
 
+function isShoppingIntent(text = "", category = null, inferredCategories = null) {
+  if (String(category || "").toLowerCase().trim() === "shopping") return true;
+  if (inferredCategories instanceof Set && inferredCategories.has("shopping")) return true;
+  return /\b(shopping|shop|retail|store|stores|commerce|buy|purchase|product|products|cart|checkout)\b/i.test(String(text || ""));
+}
+
+function isDeveloperToolContext(memory = {}) {
+  const category = String(memory.category || "").toLowerCase().trim();
+  if (category === "developer_work") return true;
+
+  const searchable = [
+    String(memory.field_path || memory.path || ""),
+    memory.category,
+    memory.label,
+    memory.title,
+    memory.summary,
+    memory.value,
+    ...(Array.isArray(memory.themes) ? memory.themes : [])
+  ].join(" ").toLowerCase();
+
+  return DEVELOPER_TOOL_TERMS.some((term) => searchable.includes(term));
+}
+
 // Convert input value into clean tokenized stems
 export function tokens(value) {
   const rawTokens = normalize(value).split(/[.\s_-]+/).filter((token) => token.length >= 3 && !STOP_WORDS.has(token));
@@ -330,6 +375,13 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
   const scored = (Array.isArray(memoryRecords) ? memoryRecords : []).map((memory) => {
     const fieldPath = String(memory.field_path || memory.path || "");
     const category = String(memory.category || "").toLowerCase();
+    if (isShoppingIntent(taskText, null, inferredCategories) && isDeveloperToolContext(memory)) {
+      return {
+        memory,
+        score: 0,
+        reasons: ["developer tool context suppressed for shopping query"]
+      };
+    }
     
     const searchable = [
       fieldPath,

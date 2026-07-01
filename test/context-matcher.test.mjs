@@ -211,6 +211,22 @@ test("context matcher respects a per-session minimum threshold floor", () => {
   assert.equal(sessionCappedResult[0].candidates.length, 0)
 })
 
+test("context matcher isolates developer tool context from shopping queries", () => {
+  const request = [{ description: "shopping for a laptop bag and retail accessories" }]
+  const developerMemory = [{
+    field_path: "developer.cursor.workspace",
+    value: "Cursor and GitHub workflow settings",
+    category: "developer_work",
+    relevance_vectors: { shopping: 0.95 }
+  }]
+
+  const matched = matchContextFields(request, developerMemory, { requestedCategory: "shopping" })
+  assert.equal(matched[0].candidates.length, 0)
+
+  const ranked = rankContextNodes("shopping for a laptop bag and retail accessories", developerMemory)
+  assert.equal(ranked.length, 0)
+})
+
 test("cross-category relevance ranking engine ranks candidates globally", () => {
   const memories = [
     { field_path: "diet.preference", value: "vegan", category: "diet" },
