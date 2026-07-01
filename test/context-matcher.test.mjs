@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { LocalContextMatcher, contextMatchingExamples, matchContextFields } from "../src/context-matcher.mjs"
+import { LocalContextMatcher, contextMatchingExamples, matchContextFields, rankContextNodes } from "../src/context-matcher.mjs"
 
 test("context matcher maps food restrictions to diet memory examples", () => {
   const result = matchContextFields([
@@ -68,3 +68,15 @@ test("context matcher utilizes expanded synonym mappings", () => {
   assert.equal(result2[0].candidates[0].memory.field_path, "shopping.laptop.budget")
 })
 
+test("context matcher cross-promotes language suggestions when travel destinations are active (#216)", () => {
+  const languageMemories = [
+    { field_path: "learning.current_goals.active_topics", value: "French vocabulary phrases", category: "learning" },
+    { field_path: "learning.current_goals.active_topics", value: "Japanese Kanji practice", category: "learning" }
+  ];
+
+  const results = rankContextNodes("booking a flight ticket and accommodation in Paris", languageMemories);
+
+  assert.ok(results.length > 0);
+  assert.equal(results[0].memory.value, "French vocabulary phrases");
+  assert.ok(results[0].reasons.some(r => r.includes("cross-category travel boost")));
+});
