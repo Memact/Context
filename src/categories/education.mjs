@@ -8,14 +8,22 @@ export const contextFields = {
   preferred_study_formats: "Format of learning (e.g., video lectures, coding sandboxes, quizzes)",
   study_time_preferences: "Time of day preferred for studying (e.g., morning slots, evening slots)",
   certification_goals: "Current certifications or degrees being pursued",
-  course_history: "Recent courses viewed or enrolled in"
+  course_history: "Recent courses viewed or enrolled in",
+
+  // Dialect / locale preferences for regionalized learning outputs.
+  // Contradiction resolution hierarchy is expressed via lifecycle:
+  //   explicit preference (durable) > inferred preference (durable) > activity hint (held for review)
+  dialect_preference_hierarchy: "Dialect preference priority: explicit user preference wins over inferred, and activity hints are held for review.",
+  target_languages: "Optional convenience: languages the user is learning (to scope dialect preferences to specific languages).",
+  dialect_preferences: "Regional translation/output preferences (e.g., target_locale en-US, preferred_dialect 'British English', regional_variant 'use UK spellings')."
 };
 
 export function normalizeEducationContext(input) {
   if (!input || !input.data) return null;
   const { source, type, data, explicit = false } = input;
 
-  // Transient Signals: A single course search or casual browsing
+  // Transient Signals: a single course search or casual browsing
+  // Dialect/locale hints from activity are explicitly held for review.
   if (type === "activity") {
     return {
       category: "education",
