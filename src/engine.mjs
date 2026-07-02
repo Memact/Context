@@ -381,7 +381,39 @@ export function createSchemaPacket(group = [], options = {}) {
     created_at: new Date().toISOString()
   }
 }
+/**
+ * 🔍 Issue #228: Evidence Lineage Tracer
+ * Generates an audit trail string describing the count of observations and unique day spans.
+ */
+export function traceEvidenceLineage(sourceTrail = []) {
+  if (!Array.isArray(sourceTrail) || sourceTrail.length === 0) {
+    return "Based on systemic configuration defaults.";
+  }
 
+  let totalSessions = sourceTrail.length;
+  const uniqueDays = new Set();
+  const sources = new Set();
+
+  for (const entry of sourceTrail) {
+    // Collect source app labels if available
+    const appLabel = entry.type || entry.source_label || (entry.evidence && entry.evidence.source);
+    if (appLabel) sources.add(appLabel);
+
+    // Track unique days using timestamp fields if present
+    const timeVal = entry.started_at || entry.ended_at || entry.occurred_at;
+    const timestamp = Date.parse(timeVal || "");
+    if (Number.isFinite(timestamp)) {
+      uniqueDays.add(new Date(timestamp).toISOString().slice(0, 10));
+    }
+  }
+
+  const sourceStr = sources.size > 0 ? [...sources].join(", ") : "tracked activities";
+  const dayCount = uniqueDays.size || 1;
+  const sessionWord = totalSessions === 1 ? "session" : "sessions";
+  const dayWord = dayCount === 1 ? "day" : "days";
+
+  return `Based on ${totalSessions} ${sourceStr} ${sessionWord} over ${dayCount} ${dayWord}.`;
+}
 // --- Context Poisoning Mitigation ---------------------------------------------
 // Default limits used to isolate oversized / suspicious contributions before
 // they are ever shaped into a memory proposal.
@@ -716,6 +748,7 @@ export function shapeContextProposal(input = {}, options = {}) {
 
     user_action_required: true,
     source_trail: sourceTrail,
+    evidence_trace: traceEvidenceLineage(sourceTrail),
     guardrails: [
       "Activity is not identity.",
       "User must be able to accept, edit, reject, or delete this before it becomes memory.",
@@ -1204,23 +1237,68 @@ function normalize(value) {
 function unique(values) {
   return [...new Set((Array.isArray(values) ? values : []).map(normalize).filter(Boolean))];
 }
+// ============================================================================
+// CROSS-DOMAIN SYNONYM MAPPING INDEX (Optimized Union-Find / Disjoint Set)
+// ============================================================================
+
 class CrossDomainMappingIndex {
-  constructor() { this.forwardMap = new Map(); }
+  constructor() { 
+    this.parent = new Map();
+    this.groupMap = new Map();
+  }
+
+  // Internal: Find root with path compression (O(1) amortized)
+  _find(node) {
+    if (!this.parent.has(node)) {
+      this.parent.set(node, node);
+      this.groupMap.set(node, new Set([node]));
+      return node;
+    }
+    let root = node;
+    while (root !== this.parent.get(root)) {
+      root = this.parent.get(root);
+    }
+    // Path compression for faster future lookups
+    let curr = node;
+    while (curr !== root) {
+      let nxt = this.parent.get(curr);
+      this.parent.set(curr, root);
+      curr = nxt;
+    }
+    return root;
+  }
+
   registerLink(pathA, pathB) {
     const pA = String(pathA || "").trim().toLowerCase();
     const pB = String(pathB || "").trim().toLowerCase();
     if (!pA || !pB || pA === pB) return;
-    
-    if (!this.forwardMap.has(pA)) this.forwardMap.set(pA, new Set());
-    if (!this.forwardMap.has(pB)) this.forwardMap.set(pB, new Set());
-    
-    this.forwardMap.get(pA).add(pB);
-    this.forwardMap.get(pB).add(pA);
+
+    const rootA = this._find(pA);
+    const rootB = this._find(pB);
+
+    // Union: Merge disjoint sets if they aren't already connected
+    if (rootA !== rootB) {
+      this.parent.set(rootB, rootA);
+      
+      const groupA = this.groupMap.get(rootA);
+      const groupB = this.groupMap.get(rootB);
+      
+      for (const item of groupB) {
+        groupA.add(item);
+      }
+      this.groupMap.delete(rootB); // Free up memory
+    }
   }
+
   getAliases(path) {
     const p = String(path || "").trim().toLowerCase();
-    if (!this.forwardMap.has(p)) return [];
-    return Array.from(this.forwardMap.get(p));
+    if (!this.parent.has(p)) return [];
+    
+    const root = this._find(p);
+    const group = this.groupMap.get(root);
+    
+    // Return all connected synonyms EXCEPT the queried path itself
+    return Array.from(group).filter(item => item !== p);
   }
 }
 
@@ -1229,11 +1307,12 @@ export const crossDomainIndex = new CrossDomainMappingIndex();
 export function initializeCrossDomainSchemaParser(mappings = []) {
   if (!Array.isArray(mappings)) return;
   for (const entry of mappings) {
-    if (entry && Array.isArray(entry.synonyms)) {
-      for (let i = 0; i < entry.synonyms.length; i++) {
-        for (let j = i + 1; j < entry.synonyms.length; j++) {
-          crossDomainIndex.registerLink(entry.synonyms[i], entry.synonyms[j]);
-        }
+    if (entry && Array.isArray(entry.synonyms) && entry.synonyms.length > 1) {
+      // FAANG Optimization: O(N) mapping instead of O(N^2) cross-product loop.
+      // The Union-Find structure will naturally link all items transitively.
+      const baseNode = entry.synonyms[0];
+      for (let i = 1; i < entry.synonyms.length; i++) {
+        crossDomainIndex.registerLink(baseNode, entry.synonyms[i]);
       }
     }
   }
