@@ -3,6 +3,22 @@ import { createHash } from "node:crypto";
 const STOP_WORDS = new Set(["a", "an", "and", "app", "can", "for", "from", "get", "of", "the", "to", "use", "user", "with"]);
 const HIGH_SENSITIVITY_PREFIXES = ["identity", "diet.allergy"];
 
+  const TRAVEL_LANGUAGE_PROMOTION_MAP = {
+    "paris": "french",
+    "france": "french",
+    "tokyo": "japanese",
+    "japan": "japanese",
+    "berlin": "german",
+    "germany": "german",
+    "madrid": "spanish",
+    "barcelona": "spanish",
+    "spain": "spanish",
+    "rome": "italian",
+    "italy": "italian",
+    "seoul": "korean",
+    "korea": "korean"
+  };
+
 const DEVELOPER_TOOL_TERMS = [
   "cursor",
   "github",
@@ -19,7 +35,7 @@ const DEVELOPER_TOOL_TERMS = [
 const FOOD_DELIVERY_DOMAIN = new Set(["food-delivery", "food_delivery", "fooddelivery", "shopping.food_delivery"]);
 const HEALTH_FITNESS_DOMAIN = new Set(["health", "fitness", "health.fitness", "health_fitness", "healthfitness"]);
 
-// 🎯 ALL 44+ EXPLICIT SYNONYM EXAMPLES PRESERVED TO PREVENT FUNCTIONAL REGRESSION
+// ð¯ ALL 44+ EXPLICIT SYNONYM EXAMPLES PRESERVED TO PREVENT FUNCTIONAL REGRESSION
 export const contextMatchingExamples = Object.freeze([
   // --- Core Food & Diet Synonyms ---
   { app_field: "food restrictions", memact_fields: ["diet.preference", "diet.allergy"], reason: "Food restriction onboarding can use approved diet preference and allergy memory." },
@@ -181,13 +197,13 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
       itemThreshold = Math.max(itemThreshold, sessionMinimumThreshold);
     }
     
-    // 🔍 Extract target field rules out of our newly integrated Synonym Stem Trie
+    // ð Extract target field rules out of our newly integrated Synonym Stem Trie
     const synonymFields = SYNONYM_TRIE.searchSynonyms(requestText).length > 0 
       ? SYNONYM_TRIE.searchSynonyms(requestText) 
       : SYNONYM_TRIE.searchSynonyms(requestedItem?.description || "");
 
     const candidates = (Array.isArray(memoryRecords) ? memoryRecords : [])
-      // ⚡ Early-exit confidence feature pruning pass
+      // â¡ Early-exit confidence feature pruning pass
       .filter((memory) => {
         const confidence = memory && typeof memory.confidence === "number" ? memory.confidence : 1.0;
         return confidence >= 0.2;
@@ -726,7 +742,21 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
       }
     }
 
-    const rawScore = Math.max(lexicalScore, categoryMatchScore, relevanceVectorScore) * customWeight;
+
+      let crossCategoryPromotionBoost = 0;
+      if (category === "learning") {
+        for (const [destination, language] of Object.entries(TRAVEL_LANGUAGE_PROMOTION_MAP)) {
+          if (taskLower.includes(destination)) {
+            if (fieldPath.includes(language) || searchable.toLowerCase().includes(language)) {
+              crossCategoryPromotionBoost = 0.35;
+              reasons.push(`cross-category travel boost: ${destination} -> ${language}`);
+              break;
+            }
+          }
+        }
+      }
+  
+    const rawScore = Math.max(lexicalScore, categoryMatchScore, relevanceVectorScore, crossCategoryPromotionBoost) * customWeight;
     const score = Number(Math.max(0, Math.min(1, rawScore)).toFixed(3));
 
     const reasons = [];
