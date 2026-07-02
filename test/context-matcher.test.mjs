@@ -68,3 +68,30 @@ test("context matcher utilizes expanded synonym mappings", () => {
   assert.equal(result2[0].candidates[0].memory.field_path, "shopping.laptop.budget")
 })
 
+test("Context matcher personalizes technical search by boosting active workspace context (#219)", () => {
+  const developerMemories = [
+    { 
+      field_path: "developer.workspaces.active", 
+      value: "Working on AI AGENT AUTOMATION compiler infrastructure in Node.mjs", 
+      category: "developer_work" 
+    },
+    { 
+      field_path: "shopping.history", 
+      value: "Bought a mechanical keyboard for programming", 
+      category: "shopping" 
+    }
+  ];
+
+  // Wrap the query string inside an object layout to match what matchContextFields expects
+  const searchTask = [{ description: "how to implement dynamic context validation loops" }];
+  const matchResults = matchContextFields(searchTask, developerMemories);
+
+  assert.ok(matchResults.length > 0);
+  
+  const candidates = matchResults[0].candidates;
+  assert.ok(candidates.length > 0);
+  
+  // Verify that the active workspace memory bubbled up to the top
+  assert.equal(candidates[0].memory.field_path, "developer.workspaces.active");
+  assert.ok(candidates[0].reasons.some(r => r.includes("developer workspace search match")));
+});

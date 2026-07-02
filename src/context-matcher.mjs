@@ -279,6 +279,7 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
 
 function scoreMemory(requestTokens, synonymFields, memory = {}) {
   const fieldPath = String(memory.field_path || memory.path || "")
+  const category = String(memory.category || "").toLowerCase()
   const searchable = [
     fieldPath,
     memory.category,
@@ -308,11 +309,38 @@ function scoreMemory(requestTokens, synonymFields, memory = {}) {
   const lexical = requestTokens.size ? overlap / requestTokens.size : 0
   const fieldPathSimilarity = pathSimilarity(fieldPath, [...requestTokens].join("."))
   const synonymBoost = synonymFields.includes(fieldPath) ? 0.78 : 0
-  const score = round(Math.max(lexical, fieldPathSimilarity, synonymBoost))
+
+  // 💻 Issue #219: Developer Context Search Personalization Engine
+  let developerSearchPersonalizationBoost = 0
+  if (category === "developer_work" || fieldPath.includes("developer")) {
+    const technicalKeywords = [
+      "code", "repo", "repository", "git", "github", "branch", "commit", 
+      "compile", "debug", "test", "function", "validation", "schema", "program"
+    ]
+    
+    const requestStr = [...requestTokens].join(" ").toLowerCase()
+    const isTechnicalSearchQuery = technicalKeywords.some(kw => requestStr.includes(kw))
+    
+    if (isTechnicalSearchQuery) {
+      const workspaceCues = ["automation", "ai agent", "ml programs", "context", "mjs", "node"]
+      const sharesActiveWorkspaceContext = workspaceCues.some(cue => 
+        searchable.toLowerCase().includes(cue) || requestStr.includes(cue)
+      )
+
+      if (sharesActiveWorkspaceContext) {
+        developerSearchPersonalizationBoost = 0.30
+      }
+    }
+  }
+
+  const score = round(Math.max(lexical, fieldPathSimilarity, synonymBoost, developerSearchPersonalizationBoost))
+  
   const reasons = []
   if (synonymBoost) reasons.push("example mapping")
   if (lexical) reasons.push("keyword overlap")
   if (fieldPathSimilarity) reasons.push("field path similarity")
+  if (developerSearchPersonalizationBoost > 0) reasons.push("developer workspace search match")
+
   return {
     memory,
     score,
