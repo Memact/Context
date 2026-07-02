@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { applyLowConfidenceDynamicDemotion, resolveDemotionConfig } from "./context-demotion.mjs";
 
 const STOP_WORDS = new Set(["a", "an", "and", "app", "can", "for", "from", "get", "of", "the", "to", "use", "user", "with"]);
 const HIGH_SENSITIVITY_PREFIXES = ["identity", "diet.allergy"];
@@ -35,24 +36,31 @@ const DEVELOPER_TOOL_TERMS = [
 const FOOD_DELIVERY_DOMAIN = new Set(["food-delivery", "food_delivery", "fooddelivery", "shopping.food_delivery"]);
 const HEALTH_FITNESS_DOMAIN = new Set(["health", "fitness", "health.fitness", "health_fitness", "healthfitness"]);
 
+// 🎯 ALL 44+ EXPLICIT SYNONYM EXAMPLES PRESERVED TO PREVENT FUNCTIONAL REGRESSION
 export const contextMatchingExamples = Object.freeze([
+  // --- Core Food & Diet Synonyms ---
   { app_field: "food restrictions", memact_fields: ["diet.preference", "diet.allergy"], reason: "Food restriction onboarding can use approved diet preference and allergy memory." },
-  { app_field: "workout goal", memact_fields: ["fitness.goal"], reason: "Fitness goal maps to accepted fitness goal memory." },
-  { app_field: "preferred name", memact_fields: ["identity.preferred_name"], reason: "A preferred-name field should use explicit identity memory only." },
-  { app_field: "learning goals", memact_fields: ["education.learning_goals"], reason: "Learning goals map to accepted education memory." },
-  { app_field: "budget range", memact_fields: ["shopping.budget"], reason: "Budget range maps to accepted shopping budget memory." },
   { app_field: "dietary preferences", memact_fields: ["diet.preference"], reason: "Dietary preferences map to diet.preference memory." },
   { app_field: "dietary restrictions", memact_fields: ["diet.allergy"], reason: "Dietary restrictions map to diet.allergy memory." },
   { app_field: "food allergies", memact_fields: ["diet.allergy"], reason: "Food allergies map to diet.allergy memory." },
+  { app_field: "dietary preference", memact_fields: ["diet.preference"], reason: "Dietary preference maps to diet.preference memory." },
+  { app_field: "meal preference", memact_fields: ["diet.preference"], reason: "Meal preference maps to diet.preference memory." },
+  { app_field: "food preference", memact_fields: ["diet.preference"], reason: "Food preference maps to diet.preference memory." },
+
+  // --- Fitness & Workout Synonyms ---
+  { app_field: "workout goal", memact_fields: ["fitness.goal"], reason: "Fitness goal maps to accepted fitness goal memory." },
   { app_field: "workout setup", memact_fields: ["fitness.goal"], reason: "Workout setup maps to fitness.goal memory." },
   { app_field: "fitness objective", memact_fields: ["fitness.goal"], reason: "Fitness objective maps to fitness.goal memory." },
+  { app_field: "fitness goal", memact_fields: ["fitness.goal"], reason: "Fitness goal maps to fitness goal memory." },
+  { app_field: "activity level", memact_fields: ["fitness.activity_level"], reason: "Activity level maps to fitness activity level memory." },
+  { app_field: "workout type", memact_fields: ["fitness.preferred_workout_type"], reason: "Workout type maps to fitness preferred workout type memory." },
+  { app_field: "preferred workout", memact_fields: ["fitness.preferred_workout_type"], reason: "Preferred workout maps to fitness preferred workout type memory." },
+  { app_field: "equipment available", memact_fields: ["fitness.equipment_available"], reason: "Equipment available maps to fitness equipment available memory." },
+
+  // --- Education & Learning Synonyms ---
+  { app_field: "learning goals", memact_fields: ["education.learning_goals"], reason: "Learning goals map to accepted education memory." },
   { app_field: "learning style", memact_fields: ["learning.study_style"], reason: "Learning style maps to learning.study_style memory." },
   { app_field: "study schedule", memact_fields: ["learning.schedule"], reason: "Study schedule maps to learning.schedule memory." },
-  { app_field: "display name", memact_fields: ["identity.preferred_name"], reason: "Display name maps to identity.preferred_name memory." },
-  { app_field: "username", memact_fields: ["identity.preferred_username"], reason: "Username maps to identity.preferred_username memory." },
-  { app_field: "laptop budget", memact_fields: ["shopping.laptop.budget"], reason: "Laptop budget maps to shopping.laptop.budget memory." },
-  { app_field: "purchase budget", memact_fields: ["shopping.budget"], reason: "Purchase budget maps to shopping.budget memory." },
-  { app_field: "budget limit", memact_fields: ["shopping.budget"], reason: "Budget limit maps to shopping.budget memory." },
   { app_field: "preferred format", memact_fields: ["learning.stable_preferences.preferred_format"], reason: "Preferred format maps to learning preferred format memory." },
   { app_field: "learning pace", memact_fields: ["learning.stable_preferences.preferred_pace"], reason: "Learning pace maps to learning preferred pace memory." },
   { app_field: "study pace", memact_fields: ["learning.stable_preferences.preferred_pace"], reason: "Study pace maps to learning preferred pace memory." },
@@ -60,6 +68,12 @@ export const contextMatchingExamples = Object.freeze([
   { app_field: "session length", memact_fields: ["learning.stable_preferences.session_length_preference"], reason: "Session length maps to learning session length preference memory." },
   { app_field: "active topics", memact_fields: ["learning.current_goals.active_topics"], reason: "Active topics maps to learning current goals active topics memory." },
   { app_field: "current difficulty", memact_fields: ["learning.current_goals.current_difficulty"], reason: "Current difficulty maps to learning current difficulty memory." },
+
+  // --- Shopping & Budget Synonyms ---
+  { app_field: "budget range", memact_fields: ["shopping.budget"], reason: "Budget range maps to accepted shopping budget memory." },
+  { app_field: "laptop budget", memact_fields: ["shopping.laptop.budget"], reason: "Laptop budget maps to shopping.laptop.budget memory." },
+  { app_field: "purchase budget", memact_fields: ["shopping.budget"], reason: "Purchase budget maps to shopping.budget memory." },
+  { app_field: "budget limit", memact_fields: ["shopping.budget"], reason: "Budget limit maps to shopping.budget memory." },
   { app_field: "preferred categories", memact_fields: ["shopping.preferred_categories"], reason: "Preferred categories maps to shopping preferred categories memory." },
   { app_field: "disliked categories", memact_fields: ["shopping.disliked_categories"], reason: "Disliked categories maps to shopping disliked categories memory." },
   { app_field: "preferred brands", memact_fields: ["shopping.preferred_brands"], reason: "Preferred brands maps to shopping preferred brands memory." },
@@ -67,14 +81,11 @@ export const contextMatchingExamples = Object.freeze([
   { app_field: "purchase frequency", memact_fields: ["shopping.purchase_frequency"], reason: "Purchase frequency maps to shopping purchase frequency memory." },
   { app_field: "spending range", memact_fields: ["shopping.budget"], reason: "Spending range maps to shopping budget memory." },
   { app_field: "price range", memact_fields: ["shopping.budget"], reason: "Price range maps to shopping budget memory." },
-  { app_field: "fitness goal", memact_fields: ["fitness.goal"], reason: "Fitness goal maps to fitness goal memory." },
-  { app_field: "activity level", memact_fields: ["fitness.activity_level"], reason: "Activity level maps to fitness activity level memory." },
-  { app_field: "workout type", memact_fields: ["fitness.preferred_workout_type"], reason: "Workout type maps to fitness preferred workout type memory." },
-  { app_field: "preferred workout", memact_fields: ["fitness.preferred_workout_type"], reason: "Preferred workout maps to fitness preferred workout type memory." },
-  { app_field: "equipment available", memact_fields: ["fitness.equipment_available"], reason: "Equipment available maps to fitness equipment available memory." },
-  { app_field: "dietary preference", memact_fields: ["diet.preference"], reason: "Dietary preference maps to diet.preference memory." },
-  { app_field: "meal preference", memact_fields: ["diet.preference"], reason: "Meal preference maps to diet.preference memory." },
-  { app_field: "food preference", memact_fields: ["diet.preference"], reason: "Food preference maps to diet.preference memory." },
+
+  // --- Identity & Profile Synonyms ---
+  { app_field: "preferred name", memact_fields: ["identity.preferred_name"], reason: "A preferred-name field should use explicit identity memory only." },
+  { app_field: "display name", memact_fields: ["identity.preferred_name"], reason: "Display name maps to identity.preferred_name memory." },
+  { app_field: "username", memact_fields: ["identity.preferred_username"], reason: "Username maps to identity.preferred_username memory." },
   { app_field: "full name", memact_fields: ["identity.preferred_name"], reason: "Full name maps to identity preferred name memory." },
   { app_field: "handle", memact_fields: ["identity.preferred_username"], reason: "Handle maps to identity preferred username memory." },
   { app_field: "screen name", memact_fields: ["identity.preferred_username"], reason: "Screen name maps to identity preferred username memory." },
@@ -167,6 +178,7 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
   const baseThreshold = Number(options.threshold ?? 0.12);
   const requestedCategory = options.requestedCategory || null;
   const sessionMinimumThreshold = resolveMinimumThreshold(options, requestedCategory);
+  const demotionConfig = resolveDemotionConfig(options);
 
   return (Array.isArray(requestedContext) ? requestedContext : []).map((requestedItem) => {
     const requestText = requestToText(requestedItem);
@@ -183,8 +195,8 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
       itemThreshold = Math.max(itemThreshold, sessionMinimumThreshold);
     }
     
-    const synonymFields = SYNONYM_TRIE.searchSynonyms(requestText).length > 0 
-      ? SYNONYM_TRIE.searchSynonyms(requestText) 
+    const synonymFields = SYNONYM_TRIE.searchSynonyms(requestText).length > 0
+      ? SYNONYM_TRIE.searchSynonyms(requestText)
       : SYNONYM_TRIE.searchSynonyms(requestedItem?.description || "");
 
     const candidates = (Array.isArray(memoryRecords) ? memoryRecords : [])
@@ -195,11 +207,22 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
       .map((memory) => scoreMemory(requestText, requestTokens, synonymFields, memory, itemCategory))
       .filter((candidate) => candidate.score >= itemThreshold)
       .sort((left, right) => right.score - left.score || String(left.memory.field_path || "").localeCompare(String(right.memory.field_path || "")));
-      
+
+    const demotionApplied = applyLowConfidenceDynamicDemotion({
+      candidates,
+      requestedCategory: itemCategory,
+      requestText,
+      threshold: itemThreshold,
+      maxIterations: demotionConfig.maxIterations,
+      conflictPenalty: demotionConfig.conflictPenalty,
+      stableEpsilon: demotionConfig.stableEpsilon,
+      minConfidenceForConflictDemotion: demotionConfig.minConfidenceForConflictDemotion
+    });
+
     return {
       requested: requestedItem,
       request_text: requestText,
-      candidates
+      candidates: demotionApplied
     };
   });
 }
@@ -214,6 +237,13 @@ export function anonymizePrivateIdentities(text = "") {
 function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, requestedCategory = null) {
   const fieldPath = String(memory.field_path || memory.path || "");
   const category = String(memory.category || "").toLowerCase();
+
+  const dialectLocaleValidationBoost = dialectLocaleMatchValidationBoost({
+    requestText,
+    requestTokens,
+    fieldPath,
+    memory
+  });
 
   if (isMediaPlaybackListeningHistoryBlocked(requestedCategory, requestText, memory)) {
     return {
@@ -240,6 +270,26 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
       memory,
       score: 0,
       reasons: ["developer tool context suppressed for shopping query"],
+      sensitivity: "low",
+      requires_approval: false
+    };
+  }
+
+  if (isShoppingOrRetailQuery(requestText, requestedCategory) && isFinancialBalanceOrSalarySchema(memory)) {
+    return {
+      memory,
+      score: 0,
+      reasons: ["financial balance or salary context blocked for shopping/retail application"],
+      sensitivity: "low",
+      requires_approval: false
+    };
+  }
+
+  if (isProfessionalQuery(requestedCategory, requestText) && isGamingAchievement(memory)) {
+    return {
+      memory,
+      score: 0,
+      reasons: ["gaming achievements filtered out from professional context query results"],
       sensitivity: "low",
       requires_approval: false
     };
@@ -334,7 +384,7 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
     }
   }
 
-  const score = round(Math.max(0, Math.min(1, Math.max(lexical, fieldPathSimilarity, synonymBoost, crossDomainRelevanceVector, developerSearchPersonalizationBoost) + crossDomainRelevance)));
+  const score = round(Math.max(0, Math.min(1, Math.max(lexical, fieldPathSimilarity, synonymBoost, dialectLocaleValidationBoost, crossDomainRelevanceVector, developerSearchPersonalizationBoost) + crossDomainRelevance)));
   
   const reasons = [];
   if (synonymBoost) reasons.push("example mapping");
@@ -400,6 +450,63 @@ function isShoppingIntent(text = "", category = null, inferredCategories = null)
   if (String(category || "").toLowerCase().trim() === "shopping") return true;
   if (inferredCategories instanceof Set && inferredCategories.has("shopping")) return true;
   return /\b(shopping|shop|retail|store|stores|commerce|buy|purchase|product|products|cart|checkout)\b/i.test(String(text || ""));
+}
+
+function isShoppingOrRetailQuery(text = "", category = null, inferredCategories = null) {
+  const normCat = String(category || "").toLowerCase().trim();
+  const shoppingCats = ["shopping", "retail", "e-commerce", "ecommerce", "commerce"];
+  if (shoppingCats.includes(normCat)) return true;
+  if (inferredCategories instanceof Set) {
+    for (const c of shoppingCats) {
+      if (inferredCategories.has(c)) return true;
+    }
+  }
+  return isShoppingIntent(text, category, inferredCategories);
+}
+
+function isFinancialBalanceOrSalarySchema(memory = {}) {
+  const category = String(memory.category || "").toLowerCase().trim();
+  const fieldPath = String(memory.field_path || memory.path || "").toLowerCase();
+  const label = String(memory.label || "").toLowerCase();
+  const title = String(memory.title || "").toLowerCase();
+
+  const isBalance = fieldPath.includes("balance") || label.includes("balance") || title.includes("balance");
+  const isFinancialBalance = (category === "finance" && isBalance) || fieldPath.includes("account_balance") || fieldPath.includes("financial_balance");
+  const isSalary = category === "salary" || fieldPath.includes("salary") || label.includes("salary") || title.includes("salary");
+
+  return isFinancialBalance || isSalary;
+}
+
+function isProfessionalQuery(category = null, text = "", inferredCategories = null) {
+  const requested = String(category || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "");
+  if (requested === "professional" || requested === "productivity" || requested === "developerwork" || requested === "developer_work") {
+    return true;
+  }
+  if (inferredCategories instanceof Set) {
+    if (inferredCategories.has("professional") || inferredCategories.has("productivity") || inferredCategories.has("developer_work") || inferredCategories.has("developerwork")) {
+      return true;
+    }
+  }
+  return /\b(professional|productivity|job|work|career|resume|cv|hiring|employer|employee|corporate|office|developer)\b/i.test(String(text || ""));
+}
+
+function isGamingAchievement(memory = {}) {
+  const category = String(memory.category || "").toLowerCase().trim();
+  const fieldPath = String(memory.field_path || memory.path || "").toLowerCase();
+  const label = String(memory.label || "").toLowerCase();
+  const title = String(memory.title || "").toLowerCase();
+  const summary = String(memory.summary || "").toLowerCase();
+
+  const isGaming = category === "gaming" || fieldPath.includes("gaming");
+  if (!isGaming) return false;
+
+  const achievementTerms = ["achievement", "achievements", "trophy", "trophies", "badge", "badges", "high_score", "highscore", "level_cleared", "boss_defeated"];
+  return achievementTerms.some(term =>
+    fieldPath.includes(term) ||
+    label.includes(term) ||
+    title.includes(term) ||
+    summary.includes(term)
+  );
 }
 
 function isDeveloperToolContext(memory = {}) {
@@ -523,10 +630,117 @@ export function stem(word) {
   return w;
 }
 
+function dialectNormalizeLocaleString(value = "") {
+  return String(value || "").trim().toLowerCase();
+}
+
+function dialectNameToLocale(localeOrDialectText = "") {
+  const t = dialectNormalizeLocaleString(localeOrDialectText);
+  const map = {
+    "british english": "en-gb",
+    "uk english": "en-gb",
+    "american english": "en-us",
+    "us english": "en-us",
+    "united states english": "en-us",
+    "canadian english": "en-ca",
+    "australian english": "en-au",
+    "austria german": "de-at",
+    "austrian german": "de-at",
+    "swiss german": "de-ch",
+    "german (switzerland)": "de-ch",
+    "parisian french": "fr-fr",
+    "france french": "fr-fr",
+    "french (france)": "fr-fr"
+  };
+  const compact = t.replace(/[\s_]+/g, " ").replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
+  return map[compact] || null;
+}
+
+function extractLocaleParts(text = "") {
+  const s = dialectNormalizeLocaleString(text);
+  const localeMatch = s.match(/\b([a-z]{2,3})[-_]?([a-z]{2,})\b/);
+  if (localeMatch) {
+    return { lang: localeMatch[1], region: localeMatch[2] };
+  }
+  const langHints = { english: "en", german: "de", french: "fr", spanish: "es", italian: "it", japanese: "ja", korean: "ko", portuguese: "pt" };
+  for (const [name, lang] of Object.entries(langHints)) {
+    if (s.includes(name)) return { lang, region: null };
+  }
+  return { lang: null, region: null };
+}
+
+function dialectLocaleSimilarity(a = "", b = "") {
+  const aText = String(a || "").trim();
+  const bText = String(b || "").trim();
+  if (!aText || !bText) return 0;
+
+  const aLower = dialectNormalizeLocaleString(aText);
+  const bLower = dialectNormalizeLocaleString(bText);
+  if (aLower === bLower) return 1.0;
+
+  const aMapped = dialectNameToLocale(aText);
+  const bMapped = dialectNameToLocale(bText);
+  const aCmp = aMapped || aLower;
+  const bCmp = bMapped || bLower;
+
+  const aParts = aCmp.split(/[-_\s]+/).filter(Boolean);
+  const bParts = bCmp.split(/[-_\s]+/).filter(Boolean);
+  if (aParts.length && bParts.length) {
+    const rightSet = new Set(bParts);
+    let overlap = 0;
+    for (const p of aParts) {
+      if (rightSet.has(p)) overlap += 1;
+    }
+    const componentScore = overlap / Math.max(aParts.length, bParts.length);
+    if (componentScore > 0) return Math.max(componentScore, 0.2);
+  }
+
+  const aLoc = extractLocaleParts(aCmp);
+  const bLoc = extractLocaleParts(bCmp);
+  if (aLoc.lang && bLoc.lang) {
+    if (aLoc.lang === bLoc.lang) {
+      if (aLoc.region && bLoc.region region) return aLoc.region === bLoc.region ? 0.95 : 0.55;
+      return 0.7;
+    }
+    return 0.15;
+  }
+
+  const fuzzy = jaroWinkler(aLower, bLower);
+  return fuzzy >= 0.85 ? 0.6 + (fuzzy - 0.85) * 0.4 : fuzzy * 0.4;
+}
+
+function dialectLocaleMatchValidationBoost({ requestText = "", requestTokens = new Set(), fieldPath = "", memory = {} } = {}) { 
+  const fp = String(fieldPath || "").toLowerCase();
+  const value = String(memory?.value || "");
+
+  const isDialectField = /dialect|locale/.test(fp);
+  if (!isDialectField) return 0;
+
+  const req = String(requestText || "");
+  const requestLocaleCandidates = [];
+  const localeMatches = req.match(/\b([a-z]{2,3})[-_]?([a-z]{2,})\b/gi) || [];
+  for (const m of localeMatches) requestLocaleCandidates.push(m);
+
+  if (/british|american|australian|canadian|parisian|uk english/i.test(req)) {
+    requestLocaleCandidates.push(req);
+  }
+
+  const sim = requestLocaleCandidates.length
+    ? Math.max(...requestLocaleCandidates.map(c => dialectLocaleSimilarity(c, value)))
+    : dialectLocaleSimilarity(req, value);
+
+  if (sim >= 0.85) return 0.35;
+  if (sim >= 0.65) return 0.22;
+  if (sim >= 0.45) return 0.08;
+  if (sim >= 0.25) return 0.02;
+  return -0.25;
+}
+
 export function jaroWinkler(s1, s2) {
   s1 = s1.toLowerCase().trim();
   s2 = s2.toLowerCase().trim();
   if (s1 === s2) return 1.0;
+  
   const len1 = s1.length;
   const len2 = s2.length;
   if (len1 === 0 || len2 === 0) return 0.0;
@@ -571,9 +785,10 @@ export function jaroWinkler(s1, s2) {
 
 export function rankContextNodes(taskContext, memoryRecords = [], options = {}) {
   const taskText = typeof taskContext === "string" ? taskContext : (taskContext?.task || "");
-  const taskLower = taskText.toLowerCase();
   const categoryHints = Array.isArray(taskContext?.category_hints) ? taskContext.category_hints : [];
   const weights = taskContext?.importance_weights || {};
+
+  const taskLower = String(taskText || "").toLowerCase();
   const taskTokens = tokens(taskText);
   
   const inferredCategories = new Set(categoryHints);
@@ -605,6 +820,12 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
     if (isShoppingIntent(taskText, null, inferredCategories) && isDeveloperToolContext(memory)) {
       return { memory, score: 0, reasons: ["developer tool context suppressed for shopping query"] };
     }
+    if (isShoppingOrRetailQuery(taskText, null, inferredCategories) && isFinancialBalanceOrSalarySchema(memory)) {
+      return { memory, score: 0, reasons: ["financial balance or salary context blocked for shopping/retail application"] };
+    }
+    if (isProfessionalQuery(null, taskText, inferredCategories) && isGamingAchievement(memory)) {
+      return { memory, score: 0, reasons: ["gaming achievements filtered out from professional context query results"] };
+    }
     
     const searchable = [fieldPath, category, memory.label, memory.title, memory.summary, memory.value, ...(memory.themes || [])].join(" ");
     const candidateTokens = tokens(searchable);
@@ -623,6 +844,7 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
       }
     }
     const lexicalScore = taskTokens.size ? overlap / taskTokens.size : 0;
+    const reasons = [];
 
     let categoryMatchScore = 0;
     if (inferredCategories.has(category)) {
@@ -645,14 +867,17 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
     }
 
     let crossCategoryPromotionBoost = 0;
-    const reasons = [];
     if (category === "learning") {
-      for (const [destination, language] of Object.entries(TRAVEL_LANGUAGE_PROMOTION_MAP)) {
-        if (taskLower.includes(destination)) {
-          if (fieldPath.includes(language) || searchable.toLowerCase().includes(language)) {
-            crossCategoryPromotionBoost = 0.35;
-            reasons.push(`cross-category travel boost: ${destination} -> ${language}`);
-            break;
+      const isLanguageLearningTopicField = /(^|\.)active_topics$|(^|\.)current_goals$|(^|\.)dialect_preferences$|(^|\.)dialect_preferences\.|(^|\.)target_languages$/.test(fieldPath);
+      if (isLanguageLearningTopicField) {
+        for (const [destination, language] of Object.entries(TRAVEL_LANGUAGE_PROMOTION_MAP)) {
+          if (taskLower.includes(destination)) {
+            const searchableLower = String(searchable).toLowerCase();
+            if (fieldPath.includes(language) || searchableLower.includes(language)) {
+              crossCategoryPromotionBoost = 0.35;
+              reasons.push(`cross-category travel boost: ${destination} -> ${language}`);
+              break;
+            }
           }
         }
       }
@@ -669,12 +894,100 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
     return { memory, score, reasons: reasons.length ? reasons : ["weak semantic fallback"] };
   });
 
+  const threshold = options.threshold ?? 0.10;
   return scored
-    .filter((candidate) => candidate.score >= (options.threshold ?? 0.10))
+    .filter((candidate) => candidate.score >= threshold)
     .sort((left, right) => right.score - left.score || String(left.memory.field_path || "").localeCompare(String(right.memory.field_path || "")));
 }
 
 export class CrossCategoryRelevanceRanker {
   constructor(options = {}) { this.threshold = options.threshold ?? 0.10; }
   rank(taskContext, memoryRecords) { return rankContextNodes(taskContext, memoryRecords, { threshold: this.threshold }); }
+}
+
+export class CollisionTree {
+  constructor(name = "root") {
+    this.name = name;
+    this.children = new Map();
+    this.priorityList = null;
+  }
+  setPriority(path, priorities) {
+    const parts = typeof path === "string" ? path.split(".") : path;
+    if (!parts || parts.length === 0 || (parts.length === 1 && parts[0] === "")) {
+      this.priorityList = priorities;
+      return;
+    }
+    const [first, ...rest] = parts;
+    if (!this.children.has(first)) this.children.set(first, new CollisionTree(first));
+    this.children.get(first).setPriority(rest, priorities);
+  }
+  getPriority(path) {
+    const parts = typeof path === "string" ? path.split(".") : path;
+    let current = this;
+    let bestPriority = this.priorityList;
+    for (const part of parts) {
+      if (current.children.has(part)) {
+        current = current.children.get(part);
+        if (current.priorityList !== null) bestPriority = current.priorityList;
+      } else break;
+    }
+    return bestPriority;
+  }
+}
+
+export function resolveOverwriteCollisions(writes = [], priorityTree = null, categoryWeights = {}) {
+  const grouped = {};
+  for (const write of writes) {
+    grouped[write.path] ||= [];
+    grouped[write.path].push(write);
+  }
+  const resolved = {};
+  const routedToCRP = [];
+
+  for (const [path, pathWrites] of Object.entries(grouped)) {
+    if (pathWrites.length === 1) {
+      resolved[path] = pathWrites[0];
+      continue;
+    }
+    let priorities = priorityTree ? priorityTree.getPriority(path) : null;
+    let winningWrite = null;
+
+    if (priorities && priorities.length > 0) {
+      let bestIndex = Infinity;
+      let candidates = [];
+      for (const w of pathWrites) {
+        const idx = priorities.indexOf(w.category);
+        if (idx !== -1) {
+          if (idx < bestIndex) { bestIndex = idx; candidates = [w]; }
+          else if (idx === bestIndex) candidates.push(w);
+        }
+      }
+      if (candidates.length === 1) winningWrite = candidates[0];
+      else if (candidates.length > 1) winningWrite = resolveByWeights(candidates, categoryWeights);
+    }
+    if (!winningWrite) winningWrite = resolveByWeights(pathWrites, categoryWeights);
+    if (winningWrite) resolved[path] = winningWrite;
+    else routedToCRP.push({ path, reason: "collision_unresolved", writes: pathWrites, route_to_crp: true });
+  }
+  return { resolved, routedToCRP };
+}
+
+function resolveByWeights(writes, categoryWeights) {
+  let maxWeight = -Infinity;
+  let candidates = [];
+  for (const w of writes) {
+    const weight = categoryWeights[w.category] !== undefined ? categoryWeights[w.category] : 1.0;
+    if (weight > maxWeight) { maxWeight = weight; candidates = [w]; }
+    else if (weight === maxWeight) candidates.push(w);
+  }
+  if (candidates.length === 1) return candidates[0];
+  
+  let maxConfidence = -Infinity;
+  let confidenceCandidates = [];
+  for (const w of candidates) {
+    const conf = w.confidence !== undefined ? w.confidence : 1.0;
+    if (conf > maxConfidence) { maxConfidence = conf; confidenceCandidates = [w]; }
+    else if (conf === maxConfidence) confidenceCandidates.push(w);
+  }
+  return confidenceCandidates.length === 1 ? confidenceCandidates[0] : null;
 }

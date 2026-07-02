@@ -101,3 +101,20 @@ test("budget inference stays gated until three consistent signals", () => {
   });
   assert.equal(normalized.validation.status, "ok");
 });
+
+test("shopping size preferences are normalized", () => {
+  const normalized = normalizeShoppingContext({
+    preferred_clothing_size: "M",
+    preferred_shoe_size: "8"
+  });
+
+  assert.equal(
+    normalized.durable_preferences.preferred_clothing_size,
+    "M"
+  );
+
+  assert.equal(
+    normalized.durable_preferences.preferred_shoe_size,
+    "8"
+  );
+});
