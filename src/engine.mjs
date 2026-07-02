@@ -1204,23 +1204,68 @@ function normalize(value) {
 function unique(values) {
   return [...new Set((Array.isArray(values) ? values : []).map(normalize).filter(Boolean))];
 }
+// ============================================================================
+// CROSS-DOMAIN SYNONYM MAPPING INDEX (Optimized Union-Find / Disjoint Set)
+// ============================================================================
+
 class CrossDomainMappingIndex {
-  constructor() { this.forwardMap = new Map(); }
+  constructor() { 
+    this.parent = new Map();
+    this.groupMap = new Map();
+  }
+
+  // Internal: Find root with path compression (O(1) amortized)
+  _find(node) {
+    if (!this.parent.has(node)) {
+      this.parent.set(node, node);
+      this.groupMap.set(node, new Set([node]));
+      return node;
+    }
+    let root = node;
+    while (root !== this.parent.get(root)) {
+      root = this.parent.get(root);
+    }
+    // Path compression for faster future lookups
+    let curr = node;
+    while (curr !== root) {
+      let nxt = this.parent.get(curr);
+      this.parent.set(curr, root);
+      curr = nxt;
+    }
+    return root;
+  }
+
   registerLink(pathA, pathB) {
     const pA = String(pathA || "").trim().toLowerCase();
     const pB = String(pathB || "").trim().toLowerCase();
     if (!pA || !pB || pA === pB) return;
-    
-    if (!this.forwardMap.has(pA)) this.forwardMap.set(pA, new Set());
-    if (!this.forwardMap.has(pB)) this.forwardMap.set(pB, new Set());
-    
-    this.forwardMap.get(pA).add(pB);
-    this.forwardMap.get(pB).add(pA);
+
+    const rootA = this._find(pA);
+    const rootB = this._find(pB);
+
+    // Union: Merge disjoint sets if they aren't already connected
+    if (rootA !== rootB) {
+      this.parent.set(rootB, rootA);
+      
+      const groupA = this.groupMap.get(rootA);
+      const groupB = this.groupMap.get(rootB);
+      
+      for (const item of groupB) {
+        groupA.add(item);
+      }
+      this.groupMap.delete(rootB); // Free up memory
+    }
   }
+
   getAliases(path) {
     const p = String(path || "").trim().toLowerCase();
-    if (!this.forwardMap.has(p)) return [];
-    return Array.from(this.forwardMap.get(p));
+    if (!this.parent.has(p)) return [];
+    
+    const root = this._find(p);
+    const group = this.groupMap.get(root);
+    
+    // Return all connected synonyms EXCEPT the queried path itself
+    return Array.from(group).filter(item => item !== p);
   }
 }
 
@@ -1229,11 +1274,12 @@ export const crossDomainIndex = new CrossDomainMappingIndex();
 export function initializeCrossDomainSchemaParser(mappings = []) {
   if (!Array.isArray(mappings)) return;
   for (const entry of mappings) {
-    if (entry && Array.isArray(entry.synonyms)) {
-      for (let i = 0; i < entry.synonyms.length; i++) {
-        for (let j = i + 1; j < entry.synonyms.length; j++) {
-          crossDomainIndex.registerLink(entry.synonyms[i], entry.synonyms[j]);
-        }
+    if (entry && Array.isArray(entry.synonyms) && entry.synonyms.length > 1) {
+      // FAANG Optimization: O(N) mapping instead of O(N^2) cross-product loop.
+      // The Union-Find structure will naturally link all items transitively.
+      const baseNode = entry.synonyms[0];
+      for (let i = 1; i < entry.synonyms.length; i++) {
+        crossDomainIndex.registerLink(baseNode, entry.synonyms[i]);
       }
     }
   }
