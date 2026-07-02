@@ -216,6 +216,19 @@ export function anonymizePrivateIdentities(text = "") {
 
 function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, requestedCategory = null) {
   const fieldPath = String(memory.field_path || memory.path || "");
+
+  // Cross-domain privacy boundary:
+  // Professional / productivity workspaces must not ingest entertainment playback or listening-history context.
+  if (isMediaPlaybackListeningHistoryBlocked(requestedCategory, requestText, memory)) {
+    return {
+      memory,
+      score: 0,
+      reasons: ["media playback/listening history blocked from professional workspace"],
+      sensitivity: "low",
+      requires_approval: false
+    };
+  }
+
   if (isPartitionedDomainConflict(requestedCategory, requestText, memory)) {
     return {
       memory,
@@ -225,6 +238,7 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
       requires_approval: false
     };
   }
+
   if (isShoppingIntent(requestText, requestedCategory) && isDeveloperToolContext(memory)) {
     return {
       memory,
@@ -438,10 +452,37 @@ function isDeveloperToolContext(memory = {}) {
   return DEVELOPER_TOOL_TERMS.some((term) => searchable.includes(term));
 }
 
+function isMediaPlaybackListeningHistoryBlocked(requestedCategory, requestText, memory = {}) {
+  const requested = normalizeDomainKey(requestedCategory);
+  if (!requested) return false;
+
+  // Only gate workspaces intended for professional/prod productivity.
+  const isWorkWorkspace = requested === "professional" || requested === "productivity";
+  if (!isWorkWorkspace) return false;
+
+  const text = String(requestText || "").toLowerCase();
+  const memCategory = normalizeDomainKey(memory?.category || "");
+  const fieldPath = String(memory?.field_path || memory?.path || "").toLowerCase();
+
+  const isEntertainmentCategory =
+    memCategory === "music-streaming" ||
+    memCategory === "video-streaming" ||
+    memCategory === "movies-tv" ||
+    memCategory === "movie-booking";
+
+  const playbackHints =
+    /\b(listen|listening|play|playing|watch|watching|playback|stream|streaming|movie|movies|tv|episode|completion|watch_time|watchtime|completion_rate)\b/i.test(text) ||
+    /\b(music-streaming|video-streaming|movies-tv|watch_time|completion|playback)\b/i.test(fieldPath);
+
+  return isEntertainmentCategory || playbackHints;
+}
+
 function isPartitionedDomainConflict(requestedCategory, requestText, memory = {}, inferredCategories = null) {
   const queryDomains = new Set();
   const normalizedRequested = normalizeDomainKey(requestedCategory);
+
   if (normalizedRequested) queryDomains.add(normalizedRequested);
+
 
   if (inferredCategories instanceof Set) {
     for (const category of inferredCategories) {

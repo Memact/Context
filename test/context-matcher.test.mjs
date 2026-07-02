@@ -256,7 +256,57 @@ test("context matcher isolates developer tool context from shopping queries", ()
   assert.equal(ranked.length, 0)
 })
 
+test("context matcher blocks media playback/listening history from professional workspaces", () => {
+  const result = matchContextFields(
+    [{ description: "project planning with team" }],
+    [
+      {
+        field_path: "music-streaming.watch_history",
+        value: "lofi focus playlists",
+        category: "music-streaming",
+        relevance_vectors: { professional: 0.9 }
+      }
+    ],
+    { requestedCategory: "professional" }
+  )
+
+  assert.equal(result[0].candidates.length, 0)
+})
+
+test("context matcher blocks media playback/listening history from productivity workspaces", () => {
+  const result = rankContextNodes(
+    "deep work sessions and scheduling",
+    [
+      {
+        field_path: "movies-tv.watch_time_slots",
+        value: "10:00pm to 11:00pm watching",
+        category: "movies-tv",
+        relevance_vectors: { productivity: 0.9 }
+      }
+    ]
+  )
+
+  // rankContextNodes doesn't take requestedCategory directly; it infers categories from keywords.
+  // We assert that the media record does not surface in the top results.
+  const hasMedia = result.some(r => String(r.memory.field_path || "").includes("watch_time"))
+  assert.equal(hasMedia, false)
+})
+
+test("context matcher still isolates developer tool context correctly", () => {
+  const request = [{ description: "shopping for a laptop bag and retail accessories" }]
+  const developerMemory = [{
+    field_path: "developer.cursor.workspace",
+    value: "Cursor and GitHub workflow settings",
+    category: "developer_work",
+    relevance_vectors: { shopping: 0.95 }
+  }]
+
+  const matched = matchContextFields(request, developerMemory, { requestedCategory: "shopping" })
+  assert.equal(matched[0].candidates.length, 0)
+})
+
 test("context matcher partitions food-delivery from health and fitness queries", () => {
+
   const foodDeliveryMemory = [{
     field_path: "food-delivery.restaurant_name",
     value: "Punjabi Tadka",
