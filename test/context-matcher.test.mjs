@@ -667,3 +667,26 @@ test("context matcher restricts financial balances and salary schemas from being
   assert.ok(!rankedPaths.includes("salary.net_pay"), "rankContextNodes: Should block salary schema");
   assert.ok(rankedPaths.includes("finance.budget_goals"), "rankContextNodes: Should allow budget goals");
 });
+
+test("context matcher restricts gaming achievements from polluting professional identity profiles", () => {
+  const memories = [
+    { field_path: "gaming.achievements.boss_defeated", value: "Defeated the final boss in Elden Ring", category: "gaming", relevance_vectors: { professional: 1.0 } },
+    { field_path: "gaming.preferences.preferred_genres", value: "RPG", category: "gaming", relevance_vectors: { professional: 1.0 } },
+    { field_path: "professional.preferred_job_roles", value: "Software Engineer", category: "professional" }
+  ];
+
+  const request = [{ description: "viewing candidates for software engineering job roles in gaming" }];
+
+  const matched = matchContextFields(request, memories, { requestedCategory: "professional" });
+  const allowed = matched[0].candidates.map(c => c.memory.field_path);
+
+  assert.ok(!allowed.includes("gaming.achievements.boss_defeated"), "Should block gaming achievements");
+  assert.ok(allowed.includes("gaming.preferences.preferred_genres"), "Should allow general gaming preferences");
+
+  const ranked = rankContextNodes("viewing candidates for software engineering job roles in gaming", memories);
+  const rankedFieldPaths = ranked.map(r => r.memory.field_path);
+
+  assert.ok(!rankedFieldPaths.includes("gaming.achievements.boss_defeated"), "Should block gaming achievements in rankContextNodes");
+  assert.ok(rankedFieldPaths.includes("gaming.preferences.preferred_genres"), "Should allow gaming preferences in rankContextNodes");
+});
+

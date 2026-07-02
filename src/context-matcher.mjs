@@ -294,6 +294,16 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
       requires_approval: false
     };
   }
+
+  if (isProfessionalQuery(requestedCategory, requestText) && isGamingAchievement(memory)) {
+    return {
+      memory,
+      score: 0,
+      reasons: ["gaming achievements filtered out from professional context query results"],
+      sensitivity: "low",
+      requires_approval: false
+    };
+  }
   
   // Protect personal information before tokenizing
   const rawValue = String(memory.value || "");
@@ -513,6 +523,38 @@ function isFinancialBalanceOrSalarySchema(memory = {}) {
   const isSalary = category === "salary" || fieldPath.includes("salary") || label.includes("salary") || title.includes("salary");
 
   return isFinancialBalance || isSalary;
+}
+
+function isProfessionalQuery(category = null, text = "", inferredCategories = null) {
+  const requested = String(category || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "");
+  if (requested === "professional" || requested === "productivity" || requested === "developerwork" || requested === "developer_work") {
+    return true;
+  }
+  if (inferredCategories instanceof Set) {
+    if (inferredCategories.has("professional") || inferredCategories.has("productivity") || inferredCategories.has("developer_work") || inferredCategories.has("developerwork")) {
+      return true;
+    }
+  }
+  return /\b(professional|productivity|job|work|career|resume|cv|hiring|employer|employee|corporate|office|developer)\b/i.test(String(text || ""));
+}
+
+function isGamingAchievement(memory = {}) {
+  const category = String(memory.category || "").toLowerCase().trim();
+  const fieldPath = String(memory.field_path || memory.path || "").toLowerCase();
+  const label = String(memory.label || "").toLowerCase();
+  const title = String(memory.title || "").toLowerCase();
+  const summary = String(memory.summary || "").toLowerCase();
+
+  const isGaming = category === "gaming" || fieldPath.includes("gaming");
+  if (!isGaming) return false;
+
+  const achievementTerms = ["achievement", "achievements", "trophy", "trophies", "badge", "badges", "high_score", "highscore", "level_cleared", "boss_defeated"];
+  return achievementTerms.some(term =>
+    fieldPath.includes(term) ||
+    label.includes(term) ||
+    title.includes(term) ||
+    summary.includes(term)
+  );
 }
 
 function isDeveloperToolContext(memory = {}) {
@@ -903,6 +945,14 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
         memory,
         score: 0,
         reasons: ["financial balance or salary context blocked for shopping/retail application"]
+      };
+    }
+
+    if (isProfessionalQuery(null, taskText, inferredCategories) && isGamingAchievement(memory)) {
+      return {
+        memory,
+        score: 0,
+        reasons: ["gaming achievements filtered out from professional context query results"]
       };
     }
     
