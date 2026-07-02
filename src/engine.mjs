@@ -381,7 +381,39 @@ export function createSchemaPacket(group = [], options = {}) {
     created_at: new Date().toISOString()
   }
 }
+/**
+ * 🔍 Issue #228: Evidence Lineage Tracer
+ * Generates an audit trail string describing the count of observations and unique day spans.
+ */
+export function traceEvidenceLineage(sourceTrail = []) {
+  if (!Array.isArray(sourceTrail) || sourceTrail.length === 0) {
+    return "Based on systemic configuration defaults.";
+  }
 
+  let totalSessions = sourceTrail.length;
+  const uniqueDays = new Set();
+  const sources = new Set();
+
+  for (const entry of sourceTrail) {
+    // Collect source app labels if available
+    const appLabel = entry.type || entry.source_label || (entry.evidence && entry.evidence.source);
+    if (appLabel) sources.add(appLabel);
+
+    // Track unique days using timestamp fields if present
+    const timeVal = entry.started_at || entry.ended_at || entry.occurred_at;
+    const timestamp = Date.parse(timeVal || "");
+    if (Number.isFinite(timestamp)) {
+      uniqueDays.add(new Date(timestamp).toISOString().slice(0, 10));
+    }
+  }
+
+  const sourceStr = sources.size > 0 ? [...sources].join(", ") : "tracked activities";
+  const dayCount = uniqueDays.size || 1;
+  const sessionWord = totalSessions === 1 ? "session" : "sessions";
+  const dayWord = dayCount === 1 ? "day" : "days";
+
+  return `Based on ${totalSessions} ${sourceStr} ${sessionWord} over ${dayCount} ${dayWord}.`;
+}
 // --- Context Poisoning Mitigation ---------------------------------------------
 // Default limits used to isolate oversized / suspicious contributions before
 // they are ever shaped into a memory proposal.
@@ -716,6 +748,7 @@ export function shapeContextProposal(input = {}, options = {}) {
 
     user_action_required: true,
     source_trail: sourceTrail,
+    evidence_trace: traceEvidenceLineage(sourceTrail),
     guardrails: [
       "Activity is not identity.",
       "User must be able to accept, edit, reject, or delete this before it becomes memory.",
