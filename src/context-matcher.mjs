@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { SYNONYM_TRIE, normalize, stem, STOP_WORDS, HIGH_SENSITIVITY_PREFIXES } from "./synonym-registry.mjs";
 
-export { contextMatchingExamples } from "./synonym-registry.mjs";
+const STOP_WORDS = new Set(["a", "an", "and", "app", "can", "for", "from", "get", "of", "the", "to", "use", "user", "with"]);
+const HIGH_SENSITIVITY_PREFIXES = ["identity", "diet.allergy"];
 
 const DEVELOPER_TOOL_TERMS = [
   "cursor",
@@ -18,6 +18,120 @@ const DEVELOPER_TOOL_TERMS = [
 
 const FOOD_DELIVERY_DOMAIN = new Set(["food-delivery", "food_delivery", "fooddelivery", "shopping.food_delivery"]);
 const HEALTH_FITNESS_DOMAIN = new Set(["health", "fitness", "health.fitness", "health_fitness", "healthfitness"]);
+
+// 🎯 ALL 44+ EXPLICIT SYNONYM EXAMPLES PRESERVED TO PREVENT FUNCTIONAL REGRESSION
+export const contextMatchingExamples = Object.freeze([
+  // --- Core Food & Diet Synonyms ---
+  { app_field: "food restrictions", memact_fields: ["diet.preference", "diet.allergy"], reason: "Food restriction onboarding can use approved diet preference and allergy memory." },
+  { app_field: "dietary preferences", memact_fields: ["diet.preference"], reason: "Dietary preferences map to diet.preference memory." },
+  { app_field: "dietary restrictions", memact_fields: ["diet.allergy"], reason: "Dietary restrictions map to diet.allergy memory." },
+  { app_field: "food allergies", memact_fields: ["diet.allergy"], reason: "Food allergies map to diet.allergy memory." },
+  { app_field: "dietary preference", memact_fields: ["diet.preference"], reason: "Dietary preference maps to diet.preference memory." },
+  { app_field: "meal preference", memact_fields: ["diet.preference"], reason: "Meal preference maps to diet.preference memory." },
+  { app_field: "food preference", memact_fields: ["diet.preference"], reason: "Food preference maps to diet.preference memory." },
+
+  // --- Fitness & Workout Synonyms ---
+  { app_field: "workout goal", memact_fields: ["fitness.goal"], reason: "Fitness goal maps to accepted fitness goal memory." },
+  { app_field: "workout setup", memact_fields: ["fitness.goal"], reason: "Workout setup maps to fitness.goal memory." },
+  { app_field: "fitness objective", memact_fields: ["fitness.goal"], reason: "Fitness objective maps to fitness.goal memory." },
+  { app_field: "fitness goal", memact_fields: ["fitness.goal"], reason: "Fitness goal maps to fitness goal memory." },
+  { app_field: "activity level", memact_fields: ["fitness.activity_level"], reason: "Activity level maps to fitness activity level memory." },
+  { app_field: "workout type", memact_fields: ["fitness.preferred_workout_type"], reason: "Workout type maps to fitness preferred workout type memory." },
+  { app_field: "preferred workout", memact_fields: ["fitness.preferred_workout_type"], reason: "Preferred workout maps to fitness preferred workout type memory." },
+  { app_field: "equipment available", memact_fields: ["fitness.equipment_available"], reason: "Equipment available maps to fitness equipment available memory." },
+
+  // --- Education & Learning Synonyms ---
+  { app_field: "learning goals", memact_fields: ["education.learning_goals"], reason: "Learning goals map to accepted education memory." },
+  { app_field: "learning style", memact_fields: ["learning.study_style"], reason: "Learning style maps to learning.study_style memory." },
+  { app_field: "study schedule", memact_fields: ["learning.schedule"], reason: "Study schedule maps to learning.schedule memory." },
+  { app_field: "preferred format", memact_fields: ["learning.stable_preferences.preferred_format"], reason: "Preferred format maps to learning preferred format memory." },
+  { app_field: "learning pace", memact_fields: ["learning.stable_preferences.preferred_pace"], reason: "Learning pace maps to learning preferred pace memory." },
+  { app_field: "study pace", memact_fields: ["learning.stable_preferences.preferred_pace"], reason: "Study pace maps to learning preferred pace memory." },
+  { app_field: "explanation style", memact_fields: ["learning.stable_preferences.explanation_style"], reason: "Explanation style maps to learning explanation style memory." },
+  { app_field: "session length", memact_fields: ["learning.stable_preferences.session_length_preference"], reason: "Session length maps to learning session length preference memory." },
+  { app_field: "active topics", memact_fields: ["learning.current_goals.active_topics"], reason: "Active topics maps to learning current goals active topics memory." },
+  { app_field: "current difficulty", memact_fields: ["learning.current_goals.current_difficulty"], reason: "Current difficulty maps to learning current difficulty memory." },
+
+  // --- Shopping & Budget Synonyms ---
+  { app_field: "budget range", memact_fields: ["shopping.budget"], reason: "Budget range maps to accepted shopping budget memory." },
+  { app_field: "laptop budget", memact_fields: ["shopping.laptop.budget"], reason: "Laptop budget maps to shopping.laptop.budget memory." },
+  { app_field: "purchase budget", memact_fields: ["shopping.budget"], reason: "Purchase budget maps to shopping.budget memory." },
+  { app_field: "budget limit", memact_fields: ["shopping.budget"], reason: "Budget limit maps to shopping.budget memory." },
+  { app_field: "preferred categories", memact_fields: ["shopping.preferred_categories"], reason: "Preferred categories maps to shopping preferred categories memory." },
+  { app_field: "disliked categories", memact_fields: ["shopping.disliked_categories"], reason: "Disliked categories maps to shopping disliked categories memory." },
+  { app_field: "preferred brands", memact_fields: ["shopping.preferred_brands"], reason: "Preferred brands maps to shopping preferred brands memory." },
+  { app_field: "shopping format", memact_fields: ["shopping.preferred_format"], reason: "Shopping format maps to shopping preferred format memory." },
+  { app_field: "purchase frequency", memact_fields: ["shopping.purchase_frequency"], reason: "Purchase frequency maps to shopping purchase frequency memory." },
+  { app_field: "spending range", memact_fields: ["shopping.budget"], reason: "Spending range maps to shopping budget memory." },
+  { app_field: "price range", memact_fields: ["shopping.budget"], reason: "Price range maps to shopping budget memory." },
+
+  // --- Identity & Profile Synonyms ---
+  { app_field: "preferred name", memact_fields: ["identity.preferred_name"], reason: "A preferred-name field should use explicit identity memory only." },
+  { app_field: "display name", memact_fields: ["identity.preferred_name"], reason: "Display name maps to identity.preferred_name memory." },
+  { app_field: "username", memact_fields: ["identity.preferred_username"], reason: "Username maps to identity.preferred_username memory." },
+  { app_field: "full name", memact_fields: ["identity.preferred_name"], reason: "Full name maps to identity preferred name memory." },
+  { app_field: "handle", memact_fields: ["identity.preferred_username"], reason: "Handle maps to identity preferred username memory." },
+  { app_field: "screen name", memact_fields: ["identity.preferred_username"], reason: "Screen name maps to identity preferred username memory." },
+  { app_field: "profile name", memact_fields: ["identity.preferred_name"], reason: "Profile name maps to identity preferred name memory." },
+  { app_field: "timezone", memact_fields: ["identity.timezone"], reason: "Timezone maps to identity timezone memory." },
+  { app_field: "language preference", memact_fields: ["identity.language"], reason: "Language preference maps to identity language memory." }
+]);
+
+class SynonymTrieNode {
+  constructor() {
+    this.children = {};
+    this.memactFields = [];
+  }
+}
+
+class SynonymTrie {
+  constructor() {
+    this.root = new SynonymTrieNode();
+    this.buildTrie();
+  }
+
+  phraseToStems(phrase) {
+    return String(phrase || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9.]+/g, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(word => stem(word));
+  }
+
+  buildTrie() {
+    for (const example of contextMatchingExamples) {
+      const stems = this.phraseToStems(example.app_field);
+      if (stems.length === 0) continue;
+
+      let currentNode = this.root;
+      for (const stemToken of stems) {
+        if (!currentNode.children[stemToken]) {
+          currentNode.children[stemToken] = new SynonymTrieNode();
+        }
+        currentNode = currentNode.children[stemToken];
+      }
+      
+      for (const field of example.memact_fields) {
+        if (!currentNode.memactFields.includes(field)) {
+          currentNode.memactFields.push(field);
+        }
+      }
+    }
+  }
+
+  searchSynonyms(phrase) {
+    const stems = this.phraseToStems(phrase);
+    let currentNode = this.root;
+    for (const stemToken of stems) {
+      if (!currentNode.children[stemToken]) return [];
+      currentNode = currentNode.children[stemToken];
+    }
+    return currentNode.memactFields;
+  }
+}
+
+const SYNONYM_TRIE = new SynonymTrie();
 
 export class LocalContextMatcher {
   constructor({ threshold = 0.12, minimumThreshold = null } = {}) {
@@ -64,12 +178,13 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
       itemThreshold = Math.max(itemThreshold, sessionMinimumThreshold);
     }
     
-    // 🔍 Extract target field rules out of our integrated Synonym Stem Trie
+    // 🔍 Extract target field rules out of our newly integrated Synonym Stem Trie
     const synonymFields = SYNONYM_TRIE.searchSynonyms(requestText).length > 0 
       ? SYNONYM_TRIE.searchSynonyms(requestText) 
       : SYNONYM_TRIE.searchSynonyms(requestedItem?.description || "");
-    
+
     const candidates = (Array.isArray(memoryRecords) ? memoryRecords : [])
+      // ⚡ Early-exit confidence feature pruning pass
       .filter((memory) => {
         const confidence = memory && typeof memory.confidence === "number" ? memory.confidence : 1.0;
         return confidence >= 0.2;
@@ -305,6 +420,10 @@ function normalizeDomainKey(value = "") {
   return String(value).toLowerCase().trim().replace(/[^a-z0-9]+/g, "");
 }
 
+function normalize(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9.]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
 // Convert input value into clean tokenized stems
 export function tokens(value) {
   const rawTokens = normalize(value).split(/[.\s_-]+/).filter((token) => token.length >= 3 && !STOP_WORDS.has(token));
@@ -336,6 +455,24 @@ function pathSimilarity(left = "", right = "") {
 
 function round(value) {
   return Number(Math.max(0, Math.min(1, value)).toFixed(3));
+}
+
+export function stem(word) {
+  if (typeof word !== "string") return "";
+  let w = word.toLowerCase().trim();
+  if (w.length <= 3) return w;
+  if (w.endsWith("ies")) return w.slice(0, -3) + "y";
+  if (w.endsWith("ing")) return w.slice(0, -3);
+  if (w.endsWith("s") && !w.endsWith("ss") && !w.endsWith("us") && !w.endsWith("is") && !w.endsWith("as")) {
+    if (w.endsWith("es")) {
+      if (w.endsWith("ses") || w.endsWith("xes") || w.endsWith("ches") || w.endsWith("shes")) {
+        return w.slice(0, -2);
+      }
+      return w.slice(0, -1);
+    }
+    return w.slice(0, -1);
+  }
+  return w;
 }
 
 export function jaroWinkler(s1, s2) {
