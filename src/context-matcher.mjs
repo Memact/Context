@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { applyLowConfidenceDynamicDemotion, resolveDemotionConfig } from "./context-demotion.mjs";
 
 const STOP_WORDS = new Set(["a", "an", "and", "app", "can", "for", "from", "get", "of", "the", "to", "use", "user", "with"]);
 const HIGH_SENSITIVITY_PREFIXES = ["identity", "diet.allergy"];
@@ -180,6 +181,7 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
   // Allow appClass-specific minimum threshold floors.
   const sessionMinimumThreshold = resolveMinimumThreshold(options, requestedCategory);
 
+  const demotionConfig = resolveDemotionConfig(options);
 
   return (Array.isArray(requestedContext) ? requestedContext : []).map((requestedItem) => {
     const requestText = requestToText(requestedItem);
@@ -196,10 +198,10 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
     if (sessionMinimumThreshold !== null) {
       itemThreshold = Math.max(itemThreshold, sessionMinimumThreshold);
     }
-    
+
     // ð Extract target field rules out of our newly integrated Synonym Stem Trie
-    const synonymFields = SYNONYM_TRIE.searchSynonyms(requestText).length > 0 
-      ? SYNONYM_TRIE.searchSynonyms(requestText) 
+    const synonymFields = SYNONYM_TRIE.searchSynonyms(requestText).length > 0
+      ? SYNONYM_TRIE.searchSynonyms(requestText)
       : SYNONYM_TRIE.searchSynonyms(requestedItem?.description || "");
 
     const candidates = (Array.isArray(memoryRecords) ? memoryRecords : [])
@@ -211,11 +213,22 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
       .map((memory) => scoreMemory(requestText, requestTokens, synonymFields, memory, itemCategory))
       .filter((candidate) => candidate.score >= itemThreshold)
       .sort((left, right) => right.score - left.score || String(left.memory.field_path || "").localeCompare(String(right.memory.field_path || "")));
-      
+
+    const demotionApplied = applyLowConfidenceDynamicDemotion({
+      candidates,
+      requestedCategory: itemCategory,
+      requestText,
+      threshold: itemThreshold,
+      maxIterations: demotionConfig.maxIterations,
+      conflictPenalty: demotionConfig.conflictPenalty,
+      stableEpsilon: demotionConfig.stableEpsilon,
+      minConfidenceForConflictDemotion: demotionConfig.minConfidenceForConflictDemotion
+    });
+
     return {
       requested: requestedItem,
       request_text: requestText,
-      candidates
+      candidates: demotionApplied
     };
   });
 }
@@ -364,6 +377,8 @@ function requestToText(item) {
 }
 
 function resolveMinimumThreshold(options = {}, requestedCategory = null) {
+  // (defined below; demotion helpers appended near bottom of file)
+
   // Supports:
   // - global/session minimum threshold (existing behavior)
   // - per-app-class minimum threshold floors
@@ -494,6 +509,10 @@ function isMediaPlaybackListeningHistoryBlocked(requestedCategory, requestText, 
 }
 
 function isPartitionedDomainConflict(requestedCategory, requestText, memory = {}, inferredCategories = null) {
+  // Existing hard conflict gate used by scoreMemory().
+  // The dynamic demotion system uses the same domain pairing semantics
+  // but does not zero scores immediately.
+
   const queryDomains = new Set();
   const normalizedRequested = normalizeDomainKey(requestedCategory);
 
