@@ -284,6 +284,16 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
       requires_approval: false
     };
   }
+
+  if (isShoppingOrRetailQuery(requestText, requestedCategory) && isFinancialBalanceOrSalarySchema(memory)) {
+    return {
+      memory,
+      score: 0,
+      reasons: ["financial balance or salary context blocked for shopping/retail application"],
+      sensitivity: "low",
+      requires_approval: false
+    };
+  }
   
   // Protect personal information before tokenizing
   const rawValue = String(memory.value || "");
@@ -477,6 +487,32 @@ function isShoppingIntent(text = "", category = null, inferredCategories = null)
   if (String(category || "").toLowerCase().trim() === "shopping") return true;
   if (inferredCategories instanceof Set && inferredCategories.has("shopping")) return true;
   return /\b(shopping|shop|retail|store|stores|commerce|buy|purchase|product|products|cart|checkout)\b/i.test(String(text || ""));
+}
+
+function isShoppingOrRetailQuery(text = "", category = null, inferredCategories = null) {
+  const normCat = String(category || "").toLowerCase().trim();
+  const shoppingCats = ["shopping", "retail", "e-commerce", "ecommerce", "commerce"];
+  if (shoppingCats.includes(normCat)) return true;
+  if (inferredCategories instanceof Set) {
+    for (const c of shoppingCats) {
+      if (inferredCategories.has(c)) return true;
+    }
+  }
+  return isShoppingIntent(text, category, inferredCategories);
+}
+
+function isFinancialBalanceOrSalarySchema(memory = {}) {
+  const category = String(memory.category || "").toLowerCase().trim();
+  const fieldPath = String(memory.field_path || memory.path || "").toLowerCase();
+  const label = String(memory.label || "").toLowerCase();
+  const title = String(memory.title || "").toLowerCase();
+
+  const isBalance = fieldPath.includes("balance") || label.includes("balance") || title.includes("balance");
+  const isFinancialBalance = (category === "finance" && isBalance) || fieldPath.includes("account_balance") || fieldPath.includes("financial_balance");
+
+  const isSalary = category === "salary" || fieldPath.includes("salary") || label.includes("salary") || title.includes("salary");
+
+  return isFinancialBalance || isSalary;
 }
 
 function isDeveloperToolContext(memory = {}) {
@@ -859,6 +895,14 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
         memory,
         score: 0,
         reasons: ["developer tool context suppressed for shopping query"]
+      };
+    }
+
+    if (isShoppingOrRetailQuery(taskText, null, inferredCategories) && isFinancialBalanceOrSalarySchema(memory)) {
+      return {
+        memory,
+        score: 0,
+        reasons: ["financial balance or salary context blocked for shopping/retail application"]
       };
     }
     

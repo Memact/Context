@@ -638,3 +638,32 @@ test("cross-category relevance ranking engine ranks candidates globally", () => 
     assert.ok(dietResult.score > travelResult.score)
   }
 })
+
+test("context matcher restricts financial balances and salary schemas from being queried by retail and shopping applications", () => {
+  const financialMemories = [
+    { field_path: "finance.account_balance", value: 50000, category: "finance", relevance_vectors: { shopping: 1.0 } },
+    { field_path: "finance.budget_goals", value: "Save for vacation", category: "finance", relevance_vectors: { shopping: 1.0 } },
+    { field_path: "professional.salary", value: 120000, category: "professional", relevance_vectors: { shopping: 1.0 } },
+    { field_path: "salary.net_pay", value: 8000, category: "salary", relevance_vectors: { shopping: 1.0 } }
+  ];
+
+  const shoppingRequest = [{ description: "shopping for clothing and retail store deals" }];
+
+  const shoppingResult = matchContextFields(shoppingRequest, financialMemories, { requestedCategory: "shopping" });
+  const allowed = shoppingResult[0].candidates.map(c => c.memory.field_path);
+
+  // account_balance and salary fields must be blocked; budget_goals is allowed
+  assert.ok(!allowed.includes("finance.account_balance"), "Should block financial balance");
+  assert.ok(!allowed.includes("professional.salary"), "Should block salary field in professional");
+  assert.ok(!allowed.includes("salary.net_pay"), "Should block salary schema");
+  assert.ok(allowed.includes("finance.budget_goals"), "Should allow other non-balance finance fields");
+
+  // Verify rankContextNodes applies the same restriction
+  const ranked = rankContextNodes("shopping for clothing and retail store deals", financialMemories);
+  const rankedPaths = ranked.map(r => r.memory.field_path);
+
+  assert.ok(!rankedPaths.includes("finance.account_balance"), "rankContextNodes: Should block financial balance");
+  assert.ok(!rankedPaths.includes("professional.salary"), "rankContextNodes: Should block salary field");
+  assert.ok(!rankedPaths.includes("salary.net_pay"), "rankContextNodes: Should block salary schema");
+  assert.ok(rankedPaths.includes("finance.budget_goals"), "rankContextNodes: Should allow budget goals");
+});
