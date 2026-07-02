@@ -246,6 +246,13 @@ export function anonymizePrivateIdentities(text = "") {
 function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, requestedCategory = null) {
   const fieldPath = String(memory.field_path || memory.path || "");
 
+  const dialectLocaleValidationBoost = dialectLocaleMatchValidationBoost({
+    requestText,
+    requestTokens,
+    fieldPath,
+    memory
+  });
+
   // Cross-domain privacy boundary:
   // Professional / productivity workspaces must not ingest entertainment playback or listening-history context.
   if (isMediaPlaybackListeningHistoryBlocked(requestedCategory, requestText, memory)) {
@@ -312,6 +319,12 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
   const lexical = requestTokens.size ? overlap / requestTokens.size : 0;
   const fieldPathSimilarity = pathSimilarity(fieldPath, [...requestTokens].join("."));
   const synonymBoost = synonymFields.includes(fieldPath) ? 0.78 : 0;
+
+  // Apply dialect/locale linguistic validation as a scoring multiplier-ish term.
+  // This avoids any embedding/distance-vector dependency by using deterministic parsing + fuzzy name matching.
+  const dialectValidationContribution = dialectLocaleValidationBoost;
+  
+  
   
   // --- Contradiction Resolution Logic for Overlapping Claim Classes ---
   let crossDomainRelevance = 0;
@@ -348,7 +361,7 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
     }
   }
 
-  const score = round(Math.max(0, Math.min(1, Math.max(lexical, fieldPathSimilarity, synonymBoost, crossDomainRelevanceVector) + crossDomainRelevance)));
+  const score = round(Math.max(0, Math.min(1, Math.max(lexical, fieldPathSimilarity, synonymBoost, dialectValidationContribution, crossDomainRelevanceVector) + crossDomainRelevance)));
   
   const reasons = [];
   if (synonymBoost) reasons.push("example mapping");
@@ -604,6 +617,149 @@ export function stem(word) {
   return w;
 }
 
+function dialectNormalizeLocaleString(value = "") {
+  const v = String(value || "").trim();
+  return v.toLowerCase();
+}
+
+function dialectNameToLocale(localeOrDialectText = "") {
+  const t = dialectNormalizeLocaleString(localeOrDialectText);
+
+  // Minimal curated mapping; intentionally small/deterministic (no embeddings).
+  // Can be extended safely.
+  const map = {
+    "british english": "en-gb",
+    "uk english": "en-gb",
+    "american english": "en-us",
+    "us english": "en-us",
+    "united states english": "en-us",
+    "canadian english": "en-ca",
+    "australian english": "en-au",
+    "austria german": "de-at",
+    "austrian german": "de-at",
+    "swiss german": "de-ch",
+    "german (switzerland)": "de-ch",
+    "parisian french": "fr-fr",
+    "france french": "fr-fr",
+    "french (france)": "fr-fr"
+  };
+
+  // Normalize punctuation/whitespace variants.
+  const compact = t.replace(/[\s_]+/g, " ").replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
+  return map[compact] || null;
+}
+
+function extractLocaleParts(text = "") {
+  const s = dialectNormalizeLocaleString(text);
+
+  // ISO-ish locales: en-US, fr-FR, pt-BR
+  const localeMatch = s.match(/\b([a-z]{2,3})[-_]?([a-z]{2,})\b/);
+  if (localeMatch) {
+    return { lang: localeMatch[1], region: localeMatch[2] };
+  }
+
+  // language names fallbacks (very lightweight)
+  const langHints = {
+    english: "en",
+    german: "de",
+    french: "fr",
+    spanish: "es",
+    italian: "it",
+    japanese: "ja",
+    korean: "ko",
+    portuguese: "pt"
+  };
+
+  for (const [name, lang] of Object.entries(langHints)) {
+    if (s.includes(name)) return { lang, region: null };
+  }
+
+  return { lang: null, region: null };
+}
+
+function dialectLocaleSimilarity(a = "", b = "") {
+  const aText = String(a || "").trim();
+  const bText = String(b || "").trim();
+  if (!aText || !bText) return 0;
+
+  const aLower = dialectNormalizeLocaleString(aText);
+  const bLower = dialectNormalizeLocaleString(bText);
+
+  // Exact-ish match
+  if (aLower === bLower) return 1.0;
+
+  // If we can map dialect names -> locale codes, compare those.
+  const aMapped = dialectNameToLocale(aText);
+  const bMapped = dialectNameToLocale(bText);
+  const aCmp = aMapped || aLower;
+  const bCmp = bMapped || bLower;
+
+  // Token component similarity
+  const aParts = aCmp.split(/[-_\s]+/).filter(Boolean);
+  const bParts = bCmp.split(/[-_\s]+/).filter(Boolean);
+  if (aParts.length && bParts.length) {
+    const rightSet = new Set(bParts);
+    let overlap = 0;
+    for (const p of aParts) {
+      if (rightSet.has(p)) overlap += 1;
+    }
+    const componentScore = overlap / Math.max(aParts.length, bParts.length);
+    if (componentScore > 0) return Math.max(componentScore, 0.2);
+  }
+
+  // ISO-ish locale component score
+  const aLoc = extractLocaleParts(aCmp);
+  const bLoc = extractLocaleParts(bCmp);
+  if (aLoc.lang && bLoc.lang) {
+    if (aLoc.lang === bLoc.lang) {
+      if (aLoc.region && bLoc.region) return aLoc.region === bLoc.region ? 0.95 : 0.55;
+      return 0.7;
+    }
+    return 0.15;
+  }
+
+  // Fuzzy fallback on raw strings (still deterministic)
+  const fuzzy = jaroWinkler(aLower, bLower);
+  return fuzzy >= 0.85 ? 0.6 + (fuzzy - 0.85) * 0.4 : fuzzy * 0.4;
+}
+
+function dialectLocaleMatchValidationBoost({ requestText = "", requestTokens = new Set(), fieldPath = "", memory = {} } = {}) { 
+
+  const fp = String(fieldPath || "").toLowerCase();
+  const value = String(memory?.value || "");
+
+  // Only apply to dialect/locale fields to avoid disrupting other domains.
+  const isDialectField = /dialect|locale/.test(fp);
+  if (!isDialectField) return 0;
+
+  // Extract relevant candidate strings from request.
+  const req = String(requestText || "");
+
+  // If request explicitly contains a locale/dialect phrase, compare with memory.value.
+  // Use a few heuristics: locale codes en-US, fr-FR, and common dialect words.
+  const requestLocaleCandidates = [];
+  const localeMatches = req.match(/\b([a-z]{2,3})[-_]?([a-z]{2,})\b/gi) || [];
+  for (const m of localeMatches) requestLocaleCandidates.push(m);
+
+  // Add dialect-name-like substrings (very permissive: two words where one is a known dialect marker).
+  if (/british|american|australian|canadian|parisian|uk english/i.test(req)) {
+    requestLocaleCandidates.push(req);
+  }
+
+  // Also try direct memory value in case request has it.
+  const sim = requestLocaleCandidates.length
+    ? Math.max(...requestLocaleCandidates.map(c => dialectLocaleSimilarity(c, value)))
+    : dialectLocaleSimilarity(req, value);
+
+  // Convert similarity into a contribution in [0..0.35]. Low similarity reduces score.
+  // We keep it subtle so existing lexical matching still works.
+  if (sim >= 0.85) return 0.35;
+  if (sim >= 0.65) return 0.22;
+  if (sim >= 0.45) return 0.08;
+  if (sim >= 0.25) return 0.02;
+  return -0.25; // strong mismatch
+}
+
 export function jaroWinkler(s1, s2) {
   s1 = s1.toLowerCase().trim();
   s2 = s2.toLowerCase().trim();
@@ -663,7 +819,9 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
   const categoryHints = Array.isArray(taskContext?.category_hints) ? taskContext.category_hints : [];
   const weights = taskContext?.importance_weights || {};
 
+  const taskLower = String(taskText || "").toLowerCase();
   const taskTokens = tokens(taskText);
+  
   
   const inferredCategories = new Set(categoryHints);
   const categoryKeywords = {
@@ -730,9 +888,12 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
         }
       }
     }
-    const lexicalScore = taskTokens.size ? overlap / taskTokens.size : 0;
+const lexicalScore = taskTokens.size ? overlap / taskTokens.size : 0;
 
-    let categoryMatchScore = 0;
+  // Used by cross-category promotion logic below (TDZ safety).
+  const reasons = [];
+
+  let categoryMatchScore = 0;
     if (inferredCategories.has(category)) {
       categoryMatchScore = 0.5;
     } else {
@@ -764,21 +925,27 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
 
       let crossCategoryPromotionBoost = 0;
       if (category === "learning") {
-        for (const [destination, language] of Object.entries(TRAVEL_LANGUAGE_PROMOTION_MAP)) {
-          if (taskLower.includes(destination)) {
-            if (fieldPath.includes(language) || searchable.toLowerCase().includes(language)) {
-              crossCategoryPromotionBoost = 0.35;
-              reasons.push(`cross-category travel boost: ${destination} -> ${language}`);
-              break;
+        // Keep travel->language promotion scoped to language-learning topic-like fields.
+        // This prevents generic learning.goal / learning.* from being incorrectly boosted just because the request contains a destination keyword.
+        const isLanguageLearningTopicField = /(^|\.)active_topics$|(^|\.)current_goals$|(^|\.)dialect_preferences$|(^|\.)dialect_preferences\.|(^|\.)target_languages$/.test(fieldPath);
+
+        if (isLanguageLearningTopicField) {
+          for (const [destination, language] of Object.entries(TRAVEL_LANGUAGE_PROMOTION_MAP)) {
+            if (taskLower.includes(destination)) {
+              const searchableLower = String(searchable).toLowerCase();
+              if (fieldPath.includes(language) || searchableLower.includes(language)) {
+                crossCategoryPromotionBoost = 0.35;
+                reasons.push(`cross-category travel boost: ${destination} -> ${language}`);
+                break;
+              }
             }
           }
         }
       }
   
-    const rawScore = Math.max(lexicalScore, categoryMatchScore, relevanceVectorScore, crossCategoryPromotionBoost) * customWeight;
+const rawScore = Math.max(lexicalScore, categoryMatchScore, relevanceVectorScore, crossCategoryPromotionBoost) * customWeight;
     const score = Number(Math.max(0, Math.min(1, rawScore)).toFixed(3));
 
-    const reasons = [];
     if (lexicalScore > 0) reasons.push("lexical overlap");
     if (categoryMatchScore > 0) reasons.push("category match");
     if (relevanceVectorScore > 0) reasons.push("relevance vector mapping");
