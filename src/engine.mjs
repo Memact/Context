@@ -739,15 +739,32 @@ function normalizeContextInput(input = {}) {
 }
 
 function contextFromSignal(signal = {}) {
-  const eventType = String(signal.event_type || signal.type || "activity").slice(0, 80)
-  const category = String(signal.category || "general").slice(0, 80)
+  const eventType = String(signal.event_type || signal.type || "activity").slice(0, 80);
+  const category = String(signal.category || "general").slice(0, 80);
+  const payload = signal.payload || signal.evidence || signal.data || {};
+
+  // 🧠 Issue #232: Human-Friendly Inferred Preference Explanations
+  let friendlySummary = `Raw ${eventType} signal needs review before it becomes memory.`;
+
+  if (category === "fitness" || category === "health") {
+    const workout = payload.workout_type || "workout";
+    const duration = payload.duration ? ` lasting ${payload.duration} minutes` : "";
+    const hr = payload.heart_rate ? ` with a sustained pulse tracking near ${payload.heart_rate} BPM` : "";
+    
+    friendlySummary = `Inferred fitness preference captured from a recent raw ${workout} session${duration}${hr}. This metrics threshold observation helps calculate active exertion profiles.`;
+  } else if (category === "travel" || category === "ride-booking") {
+    const destination = payload.destination ? ` for a ride booking or map lookup heading toward ${payload.destination}` : "";
+    
+    friendlySummary = `Inferred travel interest triggered${destination}. This location threshold activity helps adapt local ambient discovery cards without tracking precise GPS paths.`;
+  }
+
   return {
     title: `Possible ${category} context`,
-    summary: `Raw ${eventType} signal needs review before it becomes memory.`,
+    summary: friendlySummary,
     signal_type: eventType,
-    evidence: sanitizeContextObject(signal.payload || signal.evidence || {}),
+    evidence: sanitizeContextObject(payload),
     review_note: "Activity is not identity. Treat this as weak evidence until the user accepts or edits it."
-  }
+  };
 }
 
 function buildContextSourceTrail(input = {}) {
