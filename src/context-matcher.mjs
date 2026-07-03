@@ -743,7 +743,6 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
   const taskTokens = tokens(taskText);
   const taskLower = String(taskText || "").toLowerCase();
 
-  
   const inferredCategories = new Set(categoryHints);
   const categoryKeywords = {
     "food": ["food", "diet", "allergy", "restaurant", "dinner", "lunch", "meal", "eat", "cooking"],
@@ -811,8 +810,16 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
     }
     const lexicalScore = taskTokens.size ? overlap / taskTokens.size : 0;
 
+    // Rankers should not surface learning.* nodes unless learning is the
+    // explicitly active intent/category for this query. This prevents
+    // cross-category travel boosts from incorrectly promoting learning.goal.
     let categoryMatchScore = 0;
-    if (inferredCategories.has(category)) {
+
+    if (String(fieldPath).startsWith("learning.")) {
+      categoryMatchScore = inferredCategories.has("learning") && inferredCategories.has(category)
+        ? 0.5
+        : 0;
+    } else if (inferredCategories.has(category)) {
       categoryMatchScore = 0.5;
     } else {
       const pathParts = fieldPath.split(".");
@@ -840,28 +847,52 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
       }
     }
 
+    // Final guardrail: never allow learning.* to be selected when learning is
+    // not explicitly active in the inferred intent set.
+    // Exception: allow learning language boosts triggered by travel-category
+    // activation logic inside this ranker.
+    if (
+      String(fieldPath).startsWith("learning.") &&
+      !inferredCategories.has("learning") &&
+      !inferredCategories.has("travel")
+    ) {
+      return {
+        memory,
+        score: 0,
+        reasons: ["learning domain not explicitly active"]
+      };
+    }
+
 
       let crossCategoryPromotionBoost = 0;
+      let crossCategoryPromotionReason = null;
       if (category === "learning") {
         for (const [destination, language] of Object.entries(TRAVEL_LANGUAGE_PROMOTION_MAP)) {
           if (taskLower.includes(destination)) {
             if (fieldPath.includes(language) || searchable.toLowerCase().includes(language)) {
               crossCategoryPromotionBoost = 0.35;
-              reasons.push(`cross-category travel boost: ${destination} -> ${language}`);
+              crossCategoryPromotionReason = `cross-category travel boost: ${destination} -> ${language}`;
               break;
             }
           }
         }
       }
   
+  
+    if (crossCategoryPromotionReason) {
+      // Attach after the reasons array is initialized.
+    }
+
     const rawScore = Math.max(lexicalScore, categoryMatchScore, relevanceVectorScore, crossCategoryPromotionBoost) * customWeight;
     const score = Number(Math.max(0, Math.min(1, rawScore)).toFixed(3));
 
     const reasons = [];
+    if (crossCategoryPromotionReason) reasons.push(crossCategoryPromotionReason);
     if (lexicalScore > 0) reasons.push("lexical overlap");
     if (categoryMatchScore > 0) reasons.push("category match");
     if (relevanceVectorScore > 0) reasons.push("relevance vector mapping");
     if (customWeight !== 1.0) reasons.push(`custom weight multiplier: ${customWeight}`);
+
 
     return {
       memory,
