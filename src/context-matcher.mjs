@@ -177,6 +177,8 @@ export function createContextMatcher(options = {}) {
 export function matchContextFields(requestedContext = [], memoryRecords = [], options = {}) {
   const baseThreshold = Number(options.threshold ?? 0.12);
   const requestedCategory = options.requestedCategory || null;
+  const returnMatchLogs = Boolean(options.returnMatchLogs);
+
 
   // Allow appClass-specific minimum threshold floors.
   const sessionMinimumThreshold = resolveMinimumThreshold(options, requestedCategory);
@@ -210,8 +212,9 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
         const confidence = memory && typeof memory.confidence === "number" ? memory.confidence : 1.0;
         return confidence >= 0.2;
       })
-      .map((memory) => scoreMemory(requestText, requestTokens, synonymFields, memory, itemCategory))
+      .map((memory) => scoreMemory(requestText, requestTokens, synonymFields, memory, itemCategory, { returnMatchLogs }))
       .filter((candidate) => candidate.score >= itemThreshold)
+
       .sort((left, right) => right.score - left.score || String(left.memory.field_path || "").localeCompare(String(right.memory.field_path || "")));
 
     const demotionApplied = applyLowConfidenceDynamicDemotion({
@@ -243,7 +246,12 @@ export function anonymizePrivateIdentities(text = "") {
   });
 }
 
-function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, requestedCategory = null) {
+function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, requestedCategory = null, options = {}) {
+  const returnMatchLogs = Boolean(options?.returnMatchLogs);
+
+  const requestedTokensArray = Array.from(requestTokens);
+
+
   const fieldPath = String(memory.field_path || memory.path || "");
 
   // Cross-domain privacy boundary:
@@ -293,18 +301,48 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
   ].join(" ");
   
   const candidateTokens = tokens(searchable);
+
   let overlap = 0;
-  for (const token of requestTokens) {
-    if (candidateTokens.has(token)) {
-      overlap += 1;
-    } else {
+  let overlapExactCount = 0;
+  let overlapFuzzySum = 0;
+  let tokenOverlapLog = [];
+
+  if (returnMatchLogs) {
+    tokenOverlapLog = Array.from(requestTokens).map((token) => {
+      if (candidateTokens.has(token)) {
+        overlapExactCount += 1;
+        overlap += 1;
+        return { token, exact: true, matchedToken: token, fuzzy: 0 };
+      }
       let bestFuzzy = 0;
+      let bestToken = null;
       for (const candToken of candidateTokens) {
         const sim = jaroWinkler(token, candToken);
-        if (sim > bestFuzzy) bestFuzzy = sim;
+        if (sim > bestFuzzy) {
+          bestFuzzy = sim;
+          bestToken = candToken;
+        }
       }
       if (bestFuzzy >= 0.85) {
+        overlapFuzzySum += bestFuzzy;
         overlap += bestFuzzy;
+        return { token, exact: false, matchedToken: bestToken, fuzzy: Number(bestFuzzy.toFixed(3)) };
+      }
+      return { token, exact: false, matchedToken: null, fuzzy: 0 };
+    });
+  } else {
+    for (const token of requestTokens) {
+      if (candidateTokens.has(token)) {
+        overlap += 1;
+      } else {
+        let bestFuzzy = 0;
+        for (const candToken of candidateTokens) {
+          const sim = jaroWinkler(token, candToken);
+          if (sim > bestFuzzy) bestFuzzy = sim;
+        }
+        if (bestFuzzy >= 0.85) {
+          overlap += bestFuzzy;
+        }
       }
     }
   }
@@ -348,9 +386,34 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
     }
   }
 
-  const score = round(Math.max(0, Math.min(1, Math.max(lexical, fieldPathSimilarity, synonymBoost, crossDomainRelevanceVector) + crossDomainRelevance)));
+  const maxComponent = Math.max(lexical, fieldPathSimilarity, synonymBoost, crossDomainRelevanceVector);
+  const rawScore = maxComponent + crossDomainRelevance;
+  const clampedScore = Math.max(0, Math.min(1, rawScore));
+  const score = round(clampedScore);
   
   const reasons = [];
+
+  let categoryWeightLog = null;
+  if (returnMatchLogs) {
+    categoryWeightLog = {
+      requested_category: requestedCategory || null,
+      memory_category: memory.category || null,
+      lexical_score: Number(lexical.toFixed(3)),
+      field_path_similarity: Number(fieldPathSimilarity.toFixed(3)),
+      synonym_boost: Number(synonymBoost.toFixed(3)),
+      cross_domain_relevance: Number(crossDomainRelevance.toFixed(3)),
+      cross_domain_relevance_vector: Number(crossDomainRelevanceVector.toFixed(3)),
+      max_component_value: Number(maxComponent.toFixed(3)),
+      max_component_source:
+        maxComponent === lexical ? "lexical" :
+        maxComponent === fieldPathSimilarity ? "field_path_similarity" :
+        maxComponent === synonymBoost ? "synonym_boost" :
+        "cross_domain_relevance_vector",
+      final_raw_score: Number(rawScore.toFixed(3)),
+      final_score: Number(score.toFixed(3))
+    };
+  }
+
   if (synonymBoost) reasons.push("example mapping");
   if (lexical) reasons.push("keyword overlap");
   if (fieldPathSimilarity) reasons.push("field path similarity");
@@ -367,7 +430,21 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
     score,
     reasons: reasons.length ? reasons : ["weak fallback match"],
     sensitivity,
-    requires_approval: sensitivity === "high" 
+    requires_approval: sensitivity === "high",
+    ...(returnMatchLogs
+      ? {
+          match_log: {
+            token_overlap_log: {
+              overlap_exact_count: overlapExactCount,
+              overlap_fuzzy_sum: Number(overlapFuzzySum.toFixed(3)),
+              overlap_total: Number(overlap.toFixed(3)),
+              request_tokens: requestedTokensArray,
+              request_token_matches: tokenOverlapLog
+            },
+            category_weight_log: categoryWeightLog
+          }
+        }
+      : {})
   };
 }
 
@@ -664,6 +741,8 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
   const weights = taskContext?.importance_weights || {};
 
   const taskTokens = tokens(taskText);
+  const taskLower = String(taskText || "").toLowerCase();
+
   
   const inferredCategories = new Set(categoryHints);
   const categoryKeywords = {
