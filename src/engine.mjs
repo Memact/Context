@@ -702,6 +702,22 @@ export function shapeContextProposal(input = {}, options = {}) {
   }
 
   const sourceTrail = buildContextSourceTrail(submission)
+
+  
+  // 1. Determine temporary flag and optional custom ttl from submission or options
+  const isTemporary = !!(submission.temporary ?? options.temporary ?? false);
+  const ttl = submission.ttl ?? options.ttl ?? null; // e.g., timestamp or millisecond offset
+
+  // 2. Adjust default baseline confidence score if temporary
+  let confidence = submission.kind === "raw_signal" ? 0.35 : sourceTrail.length ? 0.7 : 0.55
+  if (isTemporary) {
+    confidence = Math.max(0.1, confidence - 0.2); // Lower confidence score for temporary items
+  }
+
+  const context = submission.kind === "raw_signal"
+    ? contextFromSignal(submission)
+    : sanitizeContextObject(submission.context || submission.value || {})
+
   const confidence = submission.kind === "raw_signal" ? 0.35 : sourceTrail.length ? 0.7 : 0.55
   const context = submission.kind === "raw_signal" ? contextFromSignal(submission) : sanitizeContextObject(submission.context || submission.value || {})
 
@@ -712,6 +728,7 @@ export function shapeContextProposal(input = {}, options = {}) {
   const claimClass = normalizeClaimClass(options.claim_class ?? submission.claim_class) || inferClaimClass(submission)
   const classSpec = CLAIM_CLASS_SPECS[claimClass]
   const classValidation = validateClaimClass(submission, { claim_class: claimClass, confidence: resolvedConfidence })
+
 
   return {
     schema_version: "memact.context_proposal.v0",
@@ -748,6 +765,12 @@ export function shapeContextProposal(input = {}, options = {}) {
 
     user_action_required: true,
     source_trail: sourceTrail,
+
+
+    // 3. New Schema Fields Added Here
+    temporary: isTemporary,
+    ttl: ttl,
+
     evidence_trace: traceEvidenceLineage(sourceTrail),
     guardrails: [
       "Activity is not identity.",
@@ -931,11 +954,21 @@ export function formatSchemaReport(result) {
     "",
     "Virtual Context Patterns",
   ];
+
+
+  if (!result.schemas || !result.schemas.length) {
   if (!result.schemas.length) {
     lines.push("No virtual cognitive schemas met the formation threshold.");
     return lines.join("\n");
   }
   result.schemas.forEach((schema, index) => {
+    // Add a visual [TEMPORARY] badge if the schema configuration reflects a temporary state
+    const badge = schema.temporary ? " [TEMPORARY]" : "";
+    lines.push(`${index + 1}. ${schema.label}${badge}`);
+    lines.push(`   state=${schema.state} support=${schema.support} weighted=${schema.weighted_support.toFixed(3)} confidence=${schema.confidence.toFixed(3)}`);
+    if (schema.ttl) {
+      lines.push(`   expires=${new Date(schema.ttl).toISOString()}`);
+    }
     lines.push(`${index + 1}. ${schema.label}`);
     lines.push("   state=" + schema.state + " support=" + schema.support + " weighted=" + schema.weighted_support.toFixed(3) + " confidence=" + schema.confidence.toFixed(3));
     lines.push(`   basis=${schema.formation_basis}`);

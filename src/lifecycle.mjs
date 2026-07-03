@@ -72,6 +72,67 @@ export function schemaLifecycleLabel(state) {
   };
   return labels[state] || labels[SCHEMA_LIFECYCLE_STATES.EMERGING];
 }
+
+/**
+ * Cleanup job that scans an array of context items and filters out expired ones.
+ * @param {Array} contextList - The array of context objects/proposals
+ * @param {string|Date} [now] - Optional reference time for testing overrides
+ * @returns {Array} - The filtered list containing only unexpired contexts
+ */
+export function cleanupExpiredContext(contextList = [], now = new Date()) {
+  const referenceTime = new Date(now).getTime();
+  
+  return (Array.isArray(contextList) ? contextList : []).filter((item) => {
+    if (!item.temporary || !item.ttl) return true; // Keep permanent entries or those without a shelf life
+    
+    const expiryTime = new Date(item.ttl).getTime();
+    return expiryTime > referenceTime; // Keep only if expiry is in the future
+  });
+}
+
+/**
+ * Intelligently merges context and promotes a temporary item to permanent 
+ * if matching repeated patterns are tracked.
+ * @param {Object} currentContext - The active context proposal/record
+ * @param {Array} historicalContexts - Past context items to evaluate patterns against
+ * @param {Object} options - Threshold requirements (e.g., match count)
+ * @returns {Object} - Updated or promoted context object
+ */
+export function mergeContext(currentContext = {}, historicalContexts = [], options = {}) {
+  if (!currentContext.temporary) return currentContext; // Already permanent
+
+  const minMatchesToPromote = options.minMatchesToPromote ?? 2;
+  const currentTitle = (currentContext.title || "").toLowerCase().trim();
+  const currentCategory = currentContext.category;
+
+  // Track historical matching entries matching the same profile category/title context
+  const matchingHistory = historicalContexts.filter((pastItem) => {
+    const pastTitle = (pastItem.title || "").toLowerCase().trim();
+    return pastItem.category === currentCategory && 
+           (pastTitle.includes(currentTitle) || currentTitle.includes(pastTitle));
+  });
+
+  // Promote to permanent if repeated patterns clear our target threshold threshold 
+  if (matchingHistory.length >= minMatchesToPromote) {
+    return {
+      ...currentContext,
+      temporary: false,
+      ttl: null,
+      confidence: Math.min(1.0, (currentContext.confidence || 0.5) + 0.2), // Promote structural confidence score
+      lifecycle_events: [
+        ...(Array.isArray(currentContext.lifecycle_events) ? currentContext.lifecycle_events : []),
+        {
+          action: "promote",
+          state: currentContext.lifecycle_state || "permanent",
+          occurred_at: new Date().toISOString(),
+          reason: `Pattern repeated ${matchingHistory.length} times in history. Promoted to permanent context.`,
+        }
+      ]
+    };
+  }
+
+  return currentContext;
+}
 // --- Claim Lifecycle Expansion  ---
 
 export const CLAIM_LIFECYCLE_STATES = Object.freeze({
@@ -264,3 +325,4 @@ export function rollbackClaimState(claim = {}, options = {}) {
     ]
   };
 }
+
