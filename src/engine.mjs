@@ -1,7 +1,9 @@
 import { resolveSchemaLifecycleState, schemaLifecycleLabel } from "./lifecycle.mjs";
+import { calibrateConfidence } from "./source-authority.mjs";
 export { buildMissingContextFields, contextGoalTemplates, groupContextEntry, suggestContextGoal } from "./context-goals.mjs";
 export { LocalContextMatcher, SemanticContextMatcher, createContextMatcher, matchContextFields, rankContextNodes, CrossCategoryRelevanceRanker, CollisionTree, resolveOverwriteCollisions } from "./context-matcher.mjs";
 export { compileSchemaOverlay } from "./overlay-compiler.mjs";
+export { DEFAULT_SOURCE_AUTHORITY_RATINGS, resolveSourceAuthority, calibrateConfidence } from "./source-authority.mjs";
 // ---------------------------------------------------------------------------
 // Schema Overlay Compiler
 // ---------------------------------------------------------------------------
@@ -703,7 +705,6 @@ export function shapeContextProposal(input = {}, options = {}) {
 
   const sourceTrail = buildContextSourceTrail(submission)
 
-  
   // 1. Determine temporary flag and optional custom ttl from submission or options
   const isTemporary = !!(submission.temporary ?? options.temporary ?? false);
   const ttl = submission.ttl ?? options.ttl ?? null; // e.g., timestamp or millisecond offset
@@ -718,8 +719,8 @@ export function shapeContextProposal(input = {}, options = {}) {
     ? contextFromSignal(submission)
     : sanitizeContextObject(submission.context || submission.value || {})
 
-  const confidence = submission.kind === "raw_signal" ? 0.35 : sourceTrail.length ? 0.7 : 0.55
-  const context = submission.kind === "raw_signal" ? contextFromSignal(submission) : sanitizeContextObject(submission.context || submission.value || {})
+  const authorityCalibration = calibrateConfidence(confidence, { ...submission, source_trail: sourceTrail }, { category })
+  confidence = authorityCalibration.confidence
 
   // Run any registered schema overlay for this category.
   const overlayResult = applyOverlayValidation(category, context)
@@ -737,6 +738,7 @@ export function shapeContextProposal(input = {}, options = {}) {
     title: String(submission.title || context.title || `Possible ${category} context`).trim().slice(0, 160),
     context,
     confidence: resolvedConfidence,
+    source_authority: authorityCalibration.source_authority,
 
     // Payload passed verification; record the clean verdict for auditability.
     poison_report: verification,
@@ -1335,9 +1337,9 @@ class CrossDomainMappingIndex {
   }
 }
 
-export const crossDomainIndex = new CrossDomainMappingIndex();
+const crossDomainIndex = new CrossDomainMappingIndex();
 
-export function initializeCrossDomainSchemaParser(mappings = []) {
+function initializeCrossDomainSchemaParser(mappings = []) {
   if (!Array.isArray(mappings)) return;
   for (const entry of mappings) {
     if (entry && Array.isArray(entry.synonyms) && entry.synonyms.length > 1) {
@@ -1350,3 +1352,5 @@ export function initializeCrossDomainSchemaParser(mappings = []) {
     }
   }
 }
+
+globalThis.__memactCrossDomainIndex = crossDomainIndex;

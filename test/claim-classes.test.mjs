@@ -133,3 +133,18 @@ test("identity inferred from a data field is flagged for confirmation", () => {
   assert.equal(proposal.class_validation.requires_confirmation, true)
   assert.equal(proposal.class_validation.valid, false)
 })
+
+test("known app/category pairs receive a trust multiplier for confidence calibration", () => {
+  const proposal = shapeContextProposal({
+    category: "music",
+    app_id: "spotify",
+    title: "I like jazz",
+    context: { genre: "jazz" },
+    source_trail: [{ type: "app_evidence", app_id: "spotify", evidence: ["spotify preference"] }],
+  })
+
+  assert.equal(proposal.source_authority.app_id, "spotify")
+  assert.equal(proposal.source_authority.category, "music")
+  assert.equal(proposal.source_authority.multiplier, 1.15)
+  assert.ok(proposal.confidence > 0.7)
+})
