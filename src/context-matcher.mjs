@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
 import { applyLowConfidenceDynamicDemotion, resolveDemotionConfig } from "./context-demotion.mjs";
+import OverrideManager from './overrides/override-manager.js';
+import ContextPrioritizer from './overrides/context-prioritizer.js';
+
+// Initialize override system
+const overrideManager = new OverrideManager();
+const contextPrioritizer = new ContextPrioritizer(overrideManager);
 
 const STOP_WORDS = new Set(["a", "an", "and", "app", "can", "for", "from", "get", "of", "the", "to", "use", "user", "with"]);
 const HIGH_SENSITIVITY_PREFIXES = ["identity", "diet.allergy"];
@@ -184,6 +190,10 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
   const sessionMinimumThreshold = resolveMinimumThreshold(options, requestedCategory);
   const demotionConfig = resolveDemotionConfig(options);
 
+  // Get active overrides for this request
+  const activeOverrides = overrideManager.getActive();
+  const hasActiveOverrides = activeOverrides.length > 0;
+
   return (Array.isArray(requestedContext) ? requestedContext : []).map((requestedItem) => {
     const requestText = requestToText(requestedItem);
     const requestTokens = tokens(requestText);
@@ -198,12 +208,22 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
     if (sessionMinimumThreshold !== null) {
       itemThreshold = Math.max(itemThreshold, sessionMinimumThreshold);
     }
+<<<<<<< HEAD
     
+=======
+
+    // 🔍 Extract target field rules out of our newly integrated Synonym Stem Trie
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
     const synonymFields = SYNONYM_TRIE.searchSynonyms(requestText).length > 0
       ? SYNONYM_TRIE.searchSynonyms(requestText)
       : SYNONYM_TRIE.searchSynonyms(requestedItem?.description || "");
 
+<<<<<<< HEAD
     const candidates = (Array.isArray(memoryRecords) ? memoryRecords : [])
+=======
+    let candidates = (Array.isArray(memoryRecords) ? memoryRecords : [])
+      // ⚡ Early-exit confidence feature pruning pass
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
       .filter((memory) => {
         const confidence = memory && typeof memory.confidence === "number" ? memory.confidence : 1.0;
         return confidence >= 0.2;
@@ -212,6 +232,20 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
       .filter((candidate) => candidate.score >= itemThreshold)
 
       .sort((left, right) => right.score - left.score || String(left.memory.field_path || "").localeCompare(String(right.memory.field_path || "")));
+
+    // 🎯 Apply override prioritization if active
+    if (hasActiveOverrides) {
+      candidates = contextPrioritizer.prioritize(candidates, {
+        boostFactor: options.boostFactor || 1.0,
+        boostTopN: options.boostTopN || 3
+      });
+      
+      // Apply override weights to scores
+      candidates = contextPrioritizer.applyOverrideWeights(candidates);
+      
+      // Re-sort after override weighting
+      candidates.sort((left, right) => right.score - left.score || String(left.memory.field_path || "").localeCompare(String(right.memory.field_path || "")));
+    }
 
     const demotionApplied = applyLowConfidenceDynamicDemotion({
       candidates,
@@ -224,11 +258,23 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
       minConfidenceForConflictDemotion: demotionConfig.minConfidenceForConflictDemotion
     });
 
-    return {
+    const result = {
       requested: requestedItem,
       request_text: requestText,
       candidates: demotionApplied
     };
+
+    // 🏷️ Attach override metadata if active
+    if (hasActiveOverrides) {
+      result._overrides = {
+        active: true,
+        count: activeOverrides.length,
+        modes: activeOverrides.map(o => o.mode),
+        priorities: overrideManager.getContextPriorities()
+      };
+    }
+
+    return result;
   });
 }
 
@@ -370,6 +416,7 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
   const fieldPathSimilarity = pathSimilarity(fieldPath, [...requestTokens].join("."));
   const synonymBoost = synonymFields.includes(fieldPath) ? 0.78 : 0;
 
+<<<<<<< HEAD
   // 💻 Issue #219: Developer Context Search Personalization Engine
   let developerSearchPersonalizationBoost = 0;
   if (category === "developer_work" || fieldPath.includes("developer")) {
@@ -392,6 +439,15 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
       }
     }
   }
+=======
+  // Apply dialect/locale linguistic validation as a scoring multiplier-ish term.
+  // This avoids any embedding/distance-vector dependency by using deterministic parsing + fuzzy name matching.
+  const dialectValidationContribution = dialectLocaleValidationBoost;
+  
+  // 🎯 Check if any active override matches this context
+  const overridePriority = overrideManager.getContextPriority(fieldPath);
+  const overrideBoost = overridePriority > 0 ? overridePriority / 10 : 0;
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
   
   // --- Contradiction Resolution Logic for Overlapping Claim Classes ---
   let crossDomainRelevance = 0;
@@ -427,10 +483,16 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
     }
   }
 
+<<<<<<< HEAD
   const maxComponent = Math.max(lexical, fieldPathSimilarity, synonymBoost, crossDomainRelevanceVector);
   const rawScore = maxComponent + crossDomainRelevance;
   const clampedScore = Math.max(0, Math.min(1, rawScore));
   const score = round(clampedScore);
+=======
+  // 🎯 Apply override boost to final score
+  const baseScore = Math.max(lexical, fieldPathSimilarity, synonymBoost, dialectValidationContribution, crossDomainRelevanceVector) + crossDomainRelevance;
+  const score = round(Math.max(0, Math.min(1, baseScore + overrideBoost)));
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
   
   const reasons = [];
 
@@ -458,7 +520,11 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
   if (synonymBoost) reasons.push("example mapping");
   if (lexical) reasons.push("keyword overlap");
   if (fieldPathSimilarity) reasons.push("field path similarity");
+<<<<<<< HEAD
   if (developerSearchPersonalizationBoost > 0) reasons.push("developer workspace search match");
+=======
+  if (overridePriority > 0) reasons.push(`override boost (priority: ${overridePriority})`);
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
   if (relevanceReasons.length) reasons.push(...relevanceReasons);
 
   const isHighSensitivity = HIGH_SENSITIVITY_PREFIXES.some(prefix => 
@@ -684,9 +750,16 @@ function pathSimilarity(left = "", right = "") {
       let bestFuzzy = 0;
       for (const rPart of rightParts) {
         const sim = jaroWinkler(part, rPart);
+<<<<<<< HEAD
         if (sim > bestFuzzy) bestFuzzy = sim;
       }
       if (bestFuzzy >= 0.85) overlap += bestFuzzy;
+=======
+        if (sim >= 0.85) {
+          overlap += sim;
+        }
+      }
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
     }
   }
   return overlap / Math.max(leftParts.length, rightParts.length);
@@ -718,6 +791,10 @@ function dialectNormalizeLocaleString(value = "") {
 
 function dialectNameToLocale(localeOrDialectText = "") {
   const t = dialectNormalizeLocaleString(localeOrDialectText);
+<<<<<<< HEAD
+=======
+
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
   const map = {
     "british english": "en-gb",
     "uk english": "en-gb",
@@ -734,17 +811,40 @@ function dialectNameToLocale(localeOrDialectText = "") {
     "france french": "fr-fr",
     "french (france)": "fr-fr"
   };
+<<<<<<< HEAD
+=======
+
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
   const compact = t.replace(/[\s_]+/g, " ").replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
   return map[compact] || null;
 }
 
 function extractLocaleParts(text = "") {
   const s = dialectNormalizeLocaleString(text);
+<<<<<<< HEAD
+=======
+
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
   const localeMatch = s.match(/\b([a-z]{2,3})[-_]?([a-z]{2,})\b/);
   if (localeMatch) {
     return { lang: localeMatch[1], region: localeMatch[2] };
   }
+<<<<<<< HEAD
   const langHints = { english: "en", german: "de", french: "fr", spanish: "es", italian: "it", japanese: "ja", korean: "ko", portuguese: "pt" };
+=======
+
+  const langHints = {
+    english: "en",
+    german: "de",
+    french: "fr",
+    spanish: "es",
+    italian: "it",
+    japanese: "ja",
+    korean: "ko",
+    portuguese: "pt"
+  };
+
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
   for (const [name, lang] of Object.entries(langHints)) {
     if (s.includes(name)) return { lang, region: null };
   }
@@ -758,6 +858,10 @@ function dialectLocaleSimilarity(a = "", b = "") {
 
   const aLower = dialectNormalizeLocaleString(aText);
   const bLower = dialectNormalizeLocaleString(bText);
+<<<<<<< HEAD
+=======
+
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
   if (aLower === bLower) return 1.0;
 
   const aMapped = dialectNameToLocale(aText);
@@ -800,6 +904,10 @@ function dialectLocaleMatchValidationBoost({ requestText = "", requestTokens = n
   if (!isDialectField) return 0;
 
   const req = String(requestText || "");
+<<<<<<< HEAD
+=======
+
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
   const requestLocaleCandidates = [];
   const localeMatches = req.match(/\b([a-z]{2,3})[-_]?([a-z]{2,})\b/gi) || [];
   for (const m of localeMatches) requestLocaleCandidates.push(m);
@@ -873,8 +981,11 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
 
   const taskLower = String(taskText || "").toLowerCase();
   const taskTokens = tokens(taskText);
+<<<<<<< HEAD
   const taskLower = String(taskText || "").toLowerCase();
 
+=======
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
   
   const inferredCategories = new Set(categoryHints);
   const categoryKeywords = {
@@ -894,6 +1005,10 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
       if (taskTokens.has(stem(kw))) inferredCategories.add(cat);
     }
   }
+
+  // 🎯 Get active overrides for ranking
+  const activeOverrides = overrideManager.getActive();
+  const hasActiveOverrides = activeOverrides.length > 0;
 
   const scored = (Array.isArray(memoryRecords) ? memoryRecords : []).map((memory) => {
     const fieldPath = String(memory.field_path || memory.path || "");
@@ -929,6 +1044,7 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
         if (bestFuzzy >= 0.85) overlap += bestFuzzy;
       }
     }
+<<<<<<< HEAD
     const lexicalScore = taskTokens.size ? overlap / taskTokens.size : 0;
     const reasons = [];
 
@@ -942,6 +1058,15 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
         ? 0.5
         : 0;
     } else if (inferredCategories.has(category)) {
+=======
+
+    const lexicalScore = taskTokens.size ? overlap / taskTokens.size : 0;
+
+    const reasons = [];
+
+    let categoryMatchScore = 0;
+    if (inferredCategories.has(category)) {
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
       categoryMatchScore = 0.5;
     } else if (fieldPath.split(".").some(part => inferredCategories.has(part))) {
       categoryMatchScore = 0.4;
@@ -963,27 +1088,45 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
     let crossCategoryPromotionBoost = 0;
     if (category === "learning") {
       const isLanguageLearningTopicField = /(^|\.)active_topics$|(^|\.)current_goals$|(^|\.)dialect_preferences$|(^|\.)dialect_preferences\.|(^|\.)target_languages$/.test(fieldPath);
+<<<<<<< HEAD
+=======
+
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
       if (isLanguageLearningTopicField) {
         for (const [destination, language] of Object.entries(TRAVEL_LANGUAGE_PROMOTION_MAP)) {
           if (taskLower.includes(destination)) {
             const searchableLower = String(searchable).toLowerCase();
             if (fieldPath.includes(language) || searchableLower.includes(language)) {
               crossCategoryPromotionBoost = 0.35;
+<<<<<<< HEAD
               crossCategoryPromotionReason = `cross-category travel boost: ${destination} -> ${language}`;
+=======
+              reasons.push(`cross-category travel boost: ${destination} -> ${language}`);
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
               break;
             }
           }
         }
       }
     }
+<<<<<<< HEAD
   
     const rawScore = Math.max(lexicalScore, categoryMatchScore, relevanceVectorScore, crossCategoryPromotionBoost) * customWeight;
+=======
+
+    // 🎯 Apply override boost to ranking
+    const overridePriority = overrideManager.getContextPriority(fieldPath);
+    const overrideBoost = hasActiveOverrides && overridePriority > 0 ? overridePriority / 10 : 0;
+
+    const rawScore = Math.max(lexicalScore, categoryMatchScore, relevanceVectorScore, crossCategoryPromotionBoost) * customWeight + overrideBoost;
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
     const score = Number(Math.max(0, Math.min(1, rawScore)).toFixed(3));
 
     if (lexicalScore > 0) reasons.push("lexical overlap");
     if (categoryMatchScore > 0) reasons.push("category match");
     if (relevanceVectorScore > 0) reasons.push("relevance vector mapping");
     if (customWeight !== 1.0) reasons.push(`custom weight multiplier: ${customWeight}`);
+    if (overrideBoost > 0) reasons.push(`override boost (priority: ${overridePriority})`);
 
     return { memory, score, reasons: reasons.length ? reasons : ["weak semantic fallback"] };
   });
@@ -1083,5 +1226,19 @@ function resolveByWeights(writes, categoryWeights) {
     if (conf > maxConfidence) { maxConfidence = conf; confidenceCandidates = [w]; }
     else if (conf === maxConfidence) confidenceCandidates.push(w);
   }
+<<<<<<< HEAD
   return confidenceCandidates.length === 1 ? confidenceCandidates[0] : null;
 }
+=======
+  if (confidenceCandidates.length === 1) {
+    return confidenceCandidates[0];
+  }
+  return null;
+}
+
+// 🎯 Export override functions for external use
+export {
+  overrideManager,
+  contextPrioritizer
+};
+>>>>>>> 2a0d659 (feat: integrate temporary mood/activity overrides into context-matcher)
