@@ -120,3 +120,41 @@ test("music-streaming - generateWikiEntries constructs correct structures", () =
   assert.equal(wikiData.length, 1);
   assert.equal(wikiData[0].proposed_text, "Enjoys listening to Rock music while focusing.");
 });
+
+test('music-streaming - normalizeMusicContext traces Spotify dynamic playlist queries and weights', (t) => {
+  // 1. Intercept console.info
+  const originalConsoleInfo = console.info;
+  let traceOutput = null;
+  
+  console.info = (msg) => {
+    traceOutput = JSON.parse(msg);
+  };
+
+  // 2. Execute a mock Spotify query
+  const mockSpotifyQuery = {
+    source: "spotify.com",
+    type: "preference",
+    data: {
+      favorite_artists: ["Diljit Dosanjh", "Kishore Kumar"],
+      listening_context: "workout"
+    }
+  };
+
+  const result = normalizeMusicContext(mockSpotifyQuery);
+
+  // 3. Restore console immediately to prevent test runner interference
+  console.info = originalConsoleInfo;
+
+  // 4. Assertions
+  assert.ok(traceOutput, 'Tracer should have fired for Spotify source');
+  assert.strictEqual(traceOutput.event, 'SPOTIFY_DYNAMIC_PLAYLIST_QUERY', 'Event name must match');
+  assert.strictEqual(traceOutput.matching_weight, 'high', 'Should correctly log the confidence weight');
+  assert.deepStrictEqual(
+    traceOutput.query_parameters.favorite_artists, 
+    ["Diljit Dosanjh", "Kishore Kumar"], 
+    'Should log the sanitized query parameters'
+  );
+  
+  // Ensure the core engine return value wasn't mutated
+  assert.strictEqual(result.category, 'music-streaming');
+});
