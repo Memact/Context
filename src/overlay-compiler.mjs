@@ -1,6 +1,6 @@
 /**
  * Memact Context - Dynamic Schema Overlay Compiler
- * Issue #236 [Easy]
+ * Issue #235 [Hard]
  */
 
 /**
@@ -77,6 +77,21 @@ export function compileSchemaOverlay(baseSchema = {}, overlayPatch = {}) {
     for (const rule of rules) {
       rule(runtimeData, errors);
     }
+
+    // --- NEW: Semantic Overlay Validation Failure Trace Logger ---
+    if (errors.length > 0) {
+      const tracePayload = {
+        event: "SEMANTIC_OVERLAY_VALIDATION_FAILURE",
+        timestamp: new Date().toISOString(),
+        failures: errors.map(err => ({
+          path: err.path,
+          error: err.error,
+          message: err.message
+        }))
+      };
+      console.error(JSON.stringify(tracePayload));
+    }
+
     return {
       ok: errors.length === 0,
       errors,
