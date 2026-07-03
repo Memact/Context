@@ -140,3 +140,52 @@ export const careNotes = [
   "Skipping a track is a weak signal and should not immediately blacklist a genre or artist.",
   "Listening context (e.g. sleep, focus) can be sensitive and must not be used to track daily routines without consent."
 ];
+export const wikiEntryTemplates = [
+  "Enjoys listening to {{favorite_genres}} music while focusing.",
+  "Frequently listens to {{favorite_artists}} during workouts.",
+  "Prefers to avoid {{skipped_styles}}."
+];
+
+export function generateWikiEntries(normalizedContext = {}) {
+  const proposals = [];
+  const data = normalizedContext.data || normalizedContext.preferences || normalizedContext.attributes || normalizedContext;
+  
+  const genres = data.favorite_genres || data.preferred_genres;
+  const artists = data.favorite_artists || data.frequent_artists;
+  const skipped = data.skipped_styles || data.skipped_topics;
+
+  if (genres && genres.length > 0) {
+    proposals.push({
+      id: "wiki_music_genres",
+      type: "preference",
+      sub_type: "genres",
+      proposed_text: `Enjoys listening to ${genres.join(", ")} music while focusing.`,
+      confidence: 0.8,
+      requires_user_confirmation: false
+    });
+  }
+
+  if (artists && artists.length > 0) {
+    proposals.push({
+      id: "wiki_music_artists",
+      type: "preference",
+      sub_type: "artists",
+      proposed_text: `Frequently listens to ${artists.join(", ")} during workouts.`,
+      confidence: 0.8,
+      requires_user_confirmation: false
+    });
+  }
+
+  if (skipped && skipped.length > 0) {
+    proposals.push({
+      id: "wiki_music_skipped",
+      type: "preference",
+      sub_type: "skipped_styles",
+      proposed_text: `Prefers to avoid ${skipped.join(", ")}.`,
+      confidence: 0.75,
+      requires_user_confirmation: true
+    });
+  }
+
+  return proposals;
+}
