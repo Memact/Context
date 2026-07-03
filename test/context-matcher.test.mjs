@@ -8,6 +8,8 @@ import {
   CrossCategoryRelevanceRanker 
 } from "../src/context-matcher.mjs";
 
+
+
 test("context matcher maps food restrictions to diet memory examples", () => {
   const result = matchContextFields([
     { description: "food restrictions", required: true }
@@ -19,6 +21,38 @@ test("context matcher maps food restrictions to diet memory examples", () => {
 
   assert.deepEqual(result[0].candidates.map((candidate) => candidate.memory.field_path), ["diet.allergy", "diet.preference"]);
 });
+
+test("context matcher returns explainable match logs for overlaps and category weights", () => {
+  const result = matchContextFields(
+    [{ description: "food restrictions", required: true }],
+    [
+      { field_path: "diet.preference", value: "vegetarian", category: "food" },
+      { field_path: "diet.allergy", value: "peanuts", category: "food" },
+      { field_path: "fitness.goal", value: "strength", category: "fitness" }
+    ],
+    { returnMatchLogs: true }
+  )
+
+  assert.ok(result[0].candidates.length > 0)
+
+  const candidate = result[0].candidates[0]
+  assert.ok(candidate.match_log)
+  assert.ok(candidate.match_log.token_overlap_log)
+  assert.ok(candidate.match_log.category_weight_log)
+
+  // overlap_total should be consistent with exact + fuzzy components
+  assert.equal(
+    candidate.match_log.token_overlap_log.overlap_total,
+    Number((candidate.match_log.token_overlap_log.overlap_exact_count + candidate.match_log.token_overlap_log.overlap_fuzzy_sum).toFixed(3))
+  )
+
+
+  // For synonym-mapped fields we expect synonym_boost to be > 0 on at least one candidate.
+  // (diet.allergy / diet.preference are in synonym examples for "food restrictions")
+  const hasSynonymBoost = result[0].candidates.some(c => c.match_log?.category_weight_log?.synonym_boost > 0)
+  assert.equal(hasSynonymBoost, true)
+})
+
 
 test("context matcher uses generic overlap beyond examples", () => {
   const matcher = new LocalContextMatcher();
