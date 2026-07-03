@@ -399,6 +399,27 @@ test("context matcher cross-promotes language suggestions when travel destinatio
   assert.equal(results[0].memory.value, "French vocabulary phrases");
   assert.ok(results[0].reasons.some(r => r.includes("cross-category travel boost")));
 });
+
+test("context matcher applies configurable cross-category distance multipliers", () => {
+  const languageMemories = [
+    { field_path: "learning.current_goals.active_topics", value: "French vocabulary phrases", category: "learning" },
+    { field_path: "learning.current_goals.active_topics", value: "Japanese Kanji practice", category: "learning" }
+  ];
+
+  const defaultResults = rankContextNodes("booking a flight ticket and accommodation in Paris", languageMemories, { threshold: 0 });
+  const dampenedResults = rankContextNodes(
+    {
+      task: "booking a flight ticket and accommodation in Paris",
+      cross_category_distance_multipliers: { travel: { learning: 0.2 } }
+    },
+    languageMemories,
+    { threshold: 0 }
+  );
+
+  assert.equal(defaultResults[0].memory.value, "French vocabulary phrases");
+  assert.ok(defaultResults[0].score > dampenedResults[0].score);
+  assert.ok(dampenedResults[0].reasons.some((reason) => reason.includes("cross-category distance multiplier")));
+});
 test("context matcher processes input tokens through the synonym stem trie", () => {
   const result = matchContextFields([
     { description: "food restrictions" }

@@ -20,6 +20,22 @@ const HIGH_SENSITIVITY_PREFIXES = ["identity", "diet.allergy"];
     "korea": "korean"
   };
 
+export const CROSS_CATEGORY_DISTANCE_MULTIPLIERS = Object.freeze({
+  travel: Object.freeze({
+    learning: 0.85,
+    shopping: 0.72,
+    fooddelivery: 0.58
+  }),
+  learning: Object.freeze({
+    travel: 0.85,
+    productivity: 0.8
+  }),
+  shopping: Object.freeze({
+    travel: 0.72,
+    finance: 0.82
+  })
+});
+
 const DEVELOPER_TOOL_TERMS = [
   "cursor",
   "github",
@@ -677,6 +693,62 @@ function round(value) {
   return Number(Math.max(0, Math.min(1, value)).toFixed(3));
 }
 
+function lookupCrossCategoryMultiplier(distanceMultipliers = {}, sourceCategory = "", targetCategory = "") {
+  const normalizedSource = normalizeDomainKey(sourceCategory);
+  const normalizedTarget = normalizeDomainKey(targetCategory);
+
+  if (!normalizedSource || !normalizedTarget || normalizedSource === normalizedTarget) return 1;
+
+  const sourceEntries = [
+    distanceMultipliers?.[sourceCategory],
+    distanceMultipliers?.[normalizedSource]
+  ].filter((entry) => entry && typeof entry === "object");
+
+  for (const sourceMap of sourceEntries) {
+    const directValue = sourceMap[targetCategory] ?? sourceMap[normalizedTarget];
+    if (Number.isFinite(Number(directValue))) {
+      return Number(directValue);
+    }
+
+    for (const [candidateTarget, candidateValue] of Object.entries(sourceMap)) {
+      if (normalizeDomainKey(candidateTarget) === normalizedTarget && Number.isFinite(Number(candidateValue))) {
+        return Number(candidateValue);
+      }
+    }
+  }
+
+  const pairKey = `${normalizedSource}->${normalizedTarget}`;
+  const flatValue = distanceMultipliers?.[pairKey];
+  if (Number.isFinite(Number(flatValue))) {
+    return Number(flatValue);
+  }
+
+  return 1;
+}
+
+function resolveCrossCategoryMultiplier(queryCategories = [], memoryCategory = "", distanceMultipliers = CROSS_CATEGORY_DISTANCE_MULTIPLIERS) {
+  const normalizedMemoryCategory = normalizeDomainKey(memoryCategory);
+  if (!normalizedMemoryCategory) return 1;
+
+  const queryCategoryList = queryCategories instanceof Set
+    ? Array.from(queryCategories)
+    : Array.isArray(queryCategories)
+      ? queryCategories
+      : [];
+  const normalizedQueryCategories = Array.from(new Set(queryCategoryList.map(normalizeDomainKey).filter(Boolean)));
+  if (normalizedQueryCategories.includes(normalizedMemoryCategory)) return 1;
+
+  let bestMultiplier = null;
+  for (const sourceCategory of normalizedQueryCategories) {
+    const multiplier = lookupCrossCategoryMultiplier(distanceMultipliers, sourceCategory, normalizedMemoryCategory);
+    if (multiplier !== 1) {
+      bestMultiplier = bestMultiplier === null ? multiplier : Math.max(bestMultiplier, multiplier);
+    }
+  }
+
+  return bestMultiplier === null ? 1 : bestMultiplier;
+}
+
 export function stem(word) {
   if (typeof word !== "string") return "";
   let w = word.toLowerCase().trim();
@@ -896,6 +968,11 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
   const taskText = typeof taskContext === "string" ? taskContext : (taskContext?.task || "");
   const categoryHints = Array.isArray(taskContext?.category_hints) ? taskContext.category_hints : [];
   const weights = taskContext?.importance_weights || {};
+  const crossCategoryDistanceMultipliers = taskContext?.cross_category_distance_multipliers
+    || taskContext?.crossCategoryDistanceMultipliers
+    || options.cross_category_distance_multipliers
+    || options.crossCategoryDistanceMultipliers
+    || CROSS_CATEGORY_DISTANCE_MULTIPLIERS;
 
   const taskLower = String(taskText || "").toLowerCase();
   const taskTokens = tokens(taskText);
@@ -1016,6 +1093,9 @@ const lexicalScore = taskTokens.size ? overlap / taskTokens.size : 0;
       }
     }
 
+    const crossCategoryMultiplier = resolveCrossCategoryMultiplier(inferredCategories, category, crossCategoryDistanceMultipliers);
+    const isCrossCategoryMemory = crossCategoryMultiplier !== 1 && !inferredCategories.has(category);
+
 
       let crossCategoryPromotionBoost = 0;
       if (category === "learning") {
@@ -1036,6 +1116,11 @@ const lexicalScore = taskTokens.size ? overlap / taskTokens.size : 0;
           }
         }
       }
+
+    if (isCrossCategoryMemory) {
+      relevanceVectorScore *= crossCategoryMultiplier;
+      crossCategoryPromotionBoost *= crossCategoryMultiplier;
+    }
   
 const rawScore = Math.max(lexicalScore, categoryMatchScore, relevanceVectorScore, crossCategoryPromotionBoost) * customWeight;
     const score = Number(Math.max(0, Math.min(1, rawScore)).toFixed(3));
@@ -1043,6 +1128,7 @@ const rawScore = Math.max(lexicalScore, categoryMatchScore, relevanceVectorScore
     if (lexicalScore > 0) reasons.push("lexical overlap");
     if (categoryMatchScore > 0) reasons.push("category match");
     if (relevanceVectorScore > 0) reasons.push("relevance vector mapping");
+    if (isCrossCategoryMemory) reasons.push(`cross-category distance multiplier: ${crossCategoryMultiplier}`);
     if (customWeight !== 1.0) reasons.push(`custom weight multiplier: ${customWeight}`);
 
     return {
