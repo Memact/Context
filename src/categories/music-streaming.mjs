@@ -100,3 +100,43 @@ export const proposalOutputExamples = [
   "Frequently listens to {{favorite_artists}} during workouts.",
   "Prefers to avoid {{skipped_styles}}."
 ];
+
+export const sensitiveFieldRules = {
+  track_history: {
+    sensitive: true,
+    permanent: false,
+    approval_required: true,
+    expires_after_days: 7
+  },
+  biometric_response: {
+    sensitive: true,
+    permanent: false,
+    action: "drop"
+  },
+  exact_gps_at_playback: {
+    sensitive: true,
+    permanent: false,
+    action: "drop"
+  },
+  skipped_styles: {
+    sensitive: true,
+    permanent: false,
+    approval_required: false,
+    expires_after_days: 30
+  }
+};
+
+export const permissionSuggestions = {
+  favorite_genres: "low",
+  favorite_artists: "low",
+  listening_context: "low",
+  skipped_styles: "medium",
+  track_history: "high"
+};
+
+export const careNotes = [
+  "A single listen or skip is not a preference and must not become a permanent identity label.",
+  "Do not infer mood, emotional state, or mental health from listening patterns.",
+  "Skipping a track is a weak signal and should not immediately blacklist a genre or artist.",
+  "Listening context (e.g. sleep, focus) can be sensitive and must not be used to track daily routines without consent."
+];
