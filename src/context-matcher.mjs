@@ -265,15 +265,16 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
     };
   }
 
-  if (isShoppingIntent(requestText, requestedCategory) && isDeveloperToolContext(memory)) {
+  if (isDeveloperToolContext(memory) && isShoppingOrRetailQuery(requestText, requestedCategory)) {
     return {
       memory,
       score: 0,
-      reasons: ["developer tool context suppressed for shopping query"],
+      reasons: ["developer tool context suppressed for shopping/retail query"],
       sensitivity: "low",
       requires_approval: false
     };
   }
+
 
   if (isShoppingOrRetailQuery(requestText, requestedCategory) && isFinancialBalanceOrSalarySchema(memory)) {
     return {
@@ -699,8 +700,9 @@ function dialectLocaleSimilarity(a = "", b = "") {
   const bLoc = extractLocaleParts(bCmp);
   if (aLoc.lang && bLoc.lang) {
     if (aLoc.lang === bLoc.lang) {
-      if (aLoc.region && bLoc.region region) return aLoc.region === bLoc.region ? 0.95 : 0.55;
+      if (aLoc.region && bLoc.region) return aLoc.region === bLoc.region ? 0.95 : 0.55;
       return 0.7;
+
     }
     return 0.15;
   }
@@ -817,9 +819,10 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
     if (isPartitionedDomainConflict(null, taskText, memory, inferredCategories)) {
       return { memory, score: 0, reasons: ["cross-domain partition blocked"] };
     }
-    if (isShoppingIntent(taskText, null, inferredCategories) && isDeveloperToolContext(memory)) {
-      return { memory, score: 0, reasons: ["developer tool context suppressed for shopping query"] };
+    if (isDeveloperToolContext(memory) && isShoppingOrRetailQuery(taskText, null, inferredCategories)) {
+      return { memory, score: 0, reasons: ["developer tool context suppressed for shopping/retail query"] };
     }
+
     if (isShoppingOrRetailQuery(taskText, null, inferredCategories) && isFinancialBalanceOrSalarySchema(memory)) {
       return { memory, score: 0, reasons: ["financial balance or salary context blocked for shopping/retail application"] };
     }

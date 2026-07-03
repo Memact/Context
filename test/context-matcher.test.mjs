@@ -297,6 +297,23 @@ test("context matcher still isolates developer tool context correctly", () => {
   assert.equal(matched[0].candidates.length, 0);
 });
 
+test("context matcher isolates developer tool vocabulary arrays from general retail/shopping queries", () => {
+  const request = [{ description: "retail shopping for kitchen appliances and store deals" }];
+  const developerMemory = [{
+    field_path: "developer.vocab.shoppingish",
+    value: "Cursor GitHub repository branch commit merge vocabulary array",
+    category: "learning",
+    relevance_vectors: { shopping: 0.99 }
+  }];
+
+  const matched = matchContextFields(request, developerMemory, { requestedCategory: "shopping" });
+  assert.equal(matched[0].candidates.length, 0);
+
+  const ranked = rankContextNodes("retail shopping for kitchen appliances and store deals", developerMemory);
+  assert.equal(ranked.length, 0);
+});
+
+
 test("context matcher partitions food-delivery from health and fitness queries", () => {
   const foodDeliveryMemory = [{
     field_path: "food-delivery.restaurant_name",
