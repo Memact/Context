@@ -699,7 +699,7 @@ function dialectLocaleSimilarity(a = "", b = "") {
   const bLoc = extractLocaleParts(bCmp);
   if (aLoc.lang && bLoc.lang) {
     if (aLoc.lang === bLoc.lang) {
-      if (aLoc.region && bLoc.region region) return aLoc.region === bLoc.region ? 0.95 : 0.55;
+      if (aLoc.region && bLoc.region) return aLoc.region === bLoc.region ? 0.95 : 0.55;
       return 0.7;
     }
     return 0.15;
