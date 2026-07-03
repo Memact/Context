@@ -4,21 +4,21 @@ import { applyLowConfidenceDynamicDemotion, resolveDemotionConfig } from "./cont
 const STOP_WORDS = new Set(["a", "an", "and", "app", "can", "for", "from", "get", "of", "the", "to", "use", "user", "with"]);
 const HIGH_SENSITIVITY_PREFIXES = ["identity", "diet.allergy"];
 
-  const TRAVEL_LANGUAGE_PROMOTION_MAP = {
-    "paris": "french",
-    "france": "french",
-    "tokyo": "japanese",
-    "japan": "japanese",
-    "berlin": "german",
-    "germany": "german",
-    "madrid": "spanish",
-    "barcelona": "spanish",
-    "spain": "spanish",
-    "rome": "italian",
-    "italy": "italian",
-    "seoul": "korean",
-    "korea": "korean"
-  };
+const TRAVEL_LANGUAGE_PROMOTION_MAP = {
+  "paris": "french",
+  "france": "french",
+  "tokyo": "japanese",
+  "japan": "japanese",
+  "berlin": "german",
+  "germany": "german",
+  "madrid": "spanish",
+  "barcelona": "spanish",
+  "spain": "spanish",
+  "rome": "italian",
+  "italy": "italian",
+  "seoul": "korean",
+  "korea": "korean"
+};
 
 const DEVELOPER_TOOL_TERMS = [
   "cursor",
@@ -36,7 +36,7 @@ const DEVELOPER_TOOL_TERMS = [
 const FOOD_DELIVERY_DOMAIN = new Set(["food-delivery", "food_delivery", "fooddelivery", "shopping.food_delivery"]);
 const HEALTH_FITNESS_DOMAIN = new Set(["health", "fitness", "health.fitness", "health_fitness", "healthfitness"]);
 
-// ð¯ ALL 44+ EXPLICIT SYNONYM EXAMPLES PRESERVED TO PREVENT FUNCTIONAL REGRESSION
+// 🎯 ALL 44+ EXPLICIT SYNONYM EXAMPLES PRESERVED TO PREVENT FUNCTIONAL REGRESSION
 export const contextMatchingExamples = Object.freeze([
   // --- Core Food & Diet Synonyms ---
   { app_field: "food restrictions", memact_fields: ["diet.preference", "diet.allergy"], reason: "Food restriction onboarding can use approved diet preference and allergy memory." },
@@ -182,7 +182,6 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
 
   // Allow appClass-specific minimum threshold floors.
   const sessionMinimumThreshold = resolveMinimumThreshold(options, requestedCategory);
-
   const demotionConfig = resolveDemotionConfig(options);
 
   return (Array.isArray(requestedContext) ? requestedContext : []).map((requestedItem) => {
@@ -190,7 +189,6 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
     const requestTokens = tokens(requestText);
     const itemCategory = requestedItem?.category || requestedItem?.category_hint || requestedCategory || null;
 
-    // Dynamic Threshold Adjustment based on query specificity
     let itemThreshold = baseThreshold;
     if (requestTokens.size <= 1) {
       itemThreshold = baseThreshold + 0.08;
@@ -200,14 +198,12 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
     if (sessionMinimumThreshold !== null) {
       itemThreshold = Math.max(itemThreshold, sessionMinimumThreshold);
     }
-
-    // ð Extract target field rules out of our newly integrated Synonym Stem Trie
+    
     const synonymFields = SYNONYM_TRIE.searchSynonyms(requestText).length > 0
       ? SYNONYM_TRIE.searchSynonyms(requestText)
       : SYNONYM_TRIE.searchSynonyms(requestedItem?.description || "");
 
     const candidates = (Array.isArray(memoryRecords) ? memoryRecords : [])
-      // â¡ Early-exit confidence feature pruning pass
       .filter((memory) => {
         const confidence = memory && typeof memory.confidence === "number" ? memory.confidence : 1.0;
         return confidence >= 0.2;
@@ -236,9 +232,6 @@ export function matchContextFields(requestedContext = [], memoryRecords = [], op
   });
 }
 
-/**
- * Local cryptographic helper utility to mask private PII strings before scoring execution passes
- */
 export function anonymizePrivateIdentities(text = "") {
   const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
   return String(text).replace(EMAIL_PATTERN, (match) => {
@@ -253,9 +246,15 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
 
 
   const fieldPath = String(memory.field_path || memory.path || "");
+  const category = String(memory.category || "").toLowerCase();
 
-  // Cross-domain privacy boundary:
-  // Professional / productivity workspaces must not ingest entertainment playback or listening-history context.
+  const dialectLocaleValidationBoost = dialectLocaleMatchValidationBoost({
+    requestText,
+    requestTokens,
+    fieldPath,
+    memory
+  });
+
   if (isMediaPlaybackListeningHistoryBlocked(requestedCategory, requestText, memory)) {
     return {
       memory,
@@ -276,17 +275,37 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
     };
   }
 
-  if (isShoppingIntent(requestText, requestedCategory) && isDeveloperToolContext(memory)) {
+  if (isDeveloperToolContext(memory) && isShoppingOrRetailQuery(requestText, requestedCategory)) {
     return {
       memory,
       score: 0,
-      reasons: ["developer tool context suppressed for shopping query"],
+      reasons: ["developer tool context suppressed for shopping/retail query"],
+      sensitivity: "low",
+      requires_approval: false
+    };
+  }
+
+
+  if (isShoppingOrRetailQuery(requestText, requestedCategory) && isFinancialBalanceOrSalarySchema(memory)) {
+    return {
+      memory,
+      score: 0,
+      reasons: ["financial balance or salary context blocked for shopping/retail application"],
+      sensitivity: "low",
+      requires_approval: false
+    };
+  }
+
+  if (isProfessionalQuery(requestedCategory, requestText) && isGamingAchievement(memory)) {
+    return {
+      memory,
+      score: 0,
+      reasons: ["gaming achievements filtered out from professional context query results"],
       sensitivity: "low",
       requires_approval: false
     };
   }
   
-  // Protect personal information before tokenizing
   const rawValue = String(memory.value || "");
   const protectedValue = anonymizePrivateIdentities(rawValue);
 
@@ -350,6 +369,29 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
   const lexical = requestTokens.size ? overlap / requestTokens.size : 0;
   const fieldPathSimilarity = pathSimilarity(fieldPath, [...requestTokens].join("."));
   const synonymBoost = synonymFields.includes(fieldPath) ? 0.78 : 0;
+
+  // 💻 Issue #219: Developer Context Search Personalization Engine
+  let developerSearchPersonalizationBoost = 0;
+  if (category === "developer_work" || fieldPath.includes("developer")) {
+    const technicalKeywords = [
+      "code", "repo", "repository", "git", "github", "branch", "commit", 
+      "compile", "debug", "test", "function", "validation", "schema", "program"
+    ];
+    
+    const requestStr = String(requestText || "").toLowerCase();
+    const isTechnicalSearchQuery = technicalKeywords.some(kw => requestStr.includes(kw));
+    
+    if (isTechnicalSearchQuery) {
+      const workspaceCues = ["automation", "ai agent", "ml programs", "context", "mjs", "node"];
+      const sharesActiveWorkspaceContext = workspaceCues.some(cue => 
+        searchable.toLowerCase().includes(cue) || requestStr.includes(cue)
+      );
+
+      if (sharesActiveWorkspaceContext) {
+        developerSearchPersonalizationBoost = 0.30;
+      }
+    }
+  }
   
   // --- Contradiction Resolution Logic for Overlapping Claim Classes ---
   let crossDomainRelevance = 0;
@@ -372,7 +414,6 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
     }
   }
 
-  // Allow schemas to define cross-domain relevance vectors
   let crossDomainRelevanceVector = 0;
   if (memory.relevance_vectors && requestedCategory) {
      if (memory.relevance_vectors[requestedCategory]) {
@@ -417,6 +458,7 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
   if (synonymBoost) reasons.push("example mapping");
   if (lexical) reasons.push("keyword overlap");
   if (fieldPathSimilarity) reasons.push("field path similarity");
+  if (developerSearchPersonalizationBoost > 0) reasons.push("developer workspace search match");
   if (relevanceReasons.length) reasons.push(...relevanceReasons);
 
   const isHighSensitivity = HIGH_SENSITIVITY_PREFIXES.some(prefix => 
@@ -454,86 +496,35 @@ function requestToText(item) {
 }
 
 function resolveMinimumThreshold(options = {}, requestedCategory = null) {
-  // (defined below; demotion helpers appended near bottom of file)
-
-  // Supports:
-  // - global/session minimum threshold (existing behavior)
-  // - per-app-class minimum threshold floors
-  //   * options.minimumThresholdByAppClass / minimumThresholdByCategory
-  //   * options.appClassMinimumThresholds
-  //   * options.minimumThresholdByRequestedCategory
-
   const candidates = [
     options.minimumThreshold,
     options.minThreshold,
     options.minimumMatchingThreshold,
-
     options.session?.minimumThreshold,
     options.session?.minThreshold,
     options.session?.minimumMatchingThreshold,
-
     options.querySession?.minimumThreshold,
     options.querySession?.minThreshold,
     options.querySession?.minimumMatchingThreshold,
-
     options.query_session?.minimumThreshold,
     options.query_session?.min_threshold,
     options.query_session?.minimum_matching_threshold,
-
     options.sessionConfig?.minimumThreshold,
     options.sessionConfig?.minThreshold,
     options.sessionConfig?.minimumMatchingThreshold,
-
     options.session_config?.minimum_threshold,
     options.session_config?.min_threshold,
     options.session_config?.minimum_matching_threshold,
-
-    // per-app-class floors
-    ...(options.minimumThresholdByAppClass
-      ? [
-          options.minimumThresholdByAppClass[requestedCategory] ??
-            options.minimumThresholdByAppClass?.[String(requestedCategory || "").toLowerCase()] ??
-            options.minimumThresholdByAppClass?.[String(requestedCategory || "").trim()] ??
-            options.minimumThresholdByAppClass?.default,
-        ]
-      : []),
-
-    ...(options.minimumThresholdByCategory
-      ? [
-          options.minimumThresholdByCategory[requestedCategory] ??
-            options.minimumThresholdByCategory?.[String(requestedCategory || "").toLowerCase()] ??
-            options.minimumThresholdByCategory?.[String(requestedCategory || "").trim()] ??
-            options.minimumThresholdByCategory?.default,
-        ]
-      : []),
-
-    ...(options.appClassMinimumThresholds
-      ? [
-          options.appClassMinimumThresholds[requestedCategory] ??
-            options.appClassMinimumThresholds?.[String(requestedCategory || "").toLowerCase()] ??
-            options.appClassMinimumThresholds?.[String(requestedCategory || "").trim()] ??
-            options.appClassMinimumThresholds?.default,
-        ]
-      : []),
-
-    ...(options.minimumThresholdByRequestedCategory
-      ? [
-          options.minimumThresholdByRequestedCategory[requestedCategory] ??
-            options.minimumThresholdByRequestedCategory?.[String(requestedCategory || "").toLowerCase()] ??
-            options.minimumThresholdByRequestedCategory?.[String(requestedCategory || "").trim()] ??
-            options.minimumThresholdByRequestedCategory?.default,
-        ]
-      : []),
+    ...(options.minimumThresholdByAppClass ? [options.minimumThresholdByAppClass[requestedCategory] ?? options.minimumThresholdByAppClass?.[String(requestedCategory || "").toLowerCase()] ?? options.minimumThresholdByAppClass?.default] : []),
+    ...(options.minimumThresholdByCategory ? [options.minimumThresholdByCategory[requestedCategory] ?? options.minimumThresholdByCategory?.[String(requestedCategory || "").toLowerCase()] ?? options.minimumThresholdByCategory?.default] : []),
+    ...(options.appClassMinimumThresholds ? [options.appClassMinimumThresholds[requestedCategory] ?? options.appClassMinimumThresholds?.[String(requestedCategory || "").toLowerCase()] ?? options.appClassMinimumThresholds?.default] : []),
+    ...(options.minimumThresholdByRequestedCategory ? [options.minimumThresholdByRequestedCategory[requestedCategory] ?? options.minimumThresholdByRequestedCategory?.[String(requestedCategory || "").toLowerCase()] ?? options.minimumThresholdByRequestedCategory?.default] : [])
   ];
-
 
   for (const candidate of candidates) {
     const threshold = Number(candidate);
-    if (Number.isFinite(threshold)) {
-      return threshold;
-    }
+    if (Number.isFinite(threshold)) return threshold;
   }
-
   return null;
 }
 
@@ -541,6 +532,63 @@ function isShoppingIntent(text = "", category = null, inferredCategories = null)
   if (String(category || "").toLowerCase().trim() === "shopping") return true;
   if (inferredCategories instanceof Set && inferredCategories.has("shopping")) return true;
   return /\b(shopping|shop|retail|store|stores|commerce|buy|purchase|product|products|cart|checkout)\b/i.test(String(text || ""));
+}
+
+function isShoppingOrRetailQuery(text = "", category = null, inferredCategories = null) {
+  const normCat = String(category || "").toLowerCase().trim();
+  const shoppingCats = ["shopping", "retail", "e-commerce", "ecommerce", "commerce"];
+  if (shoppingCats.includes(normCat)) return true;
+  if (inferredCategories instanceof Set) {
+    for (const c of shoppingCats) {
+      if (inferredCategories.has(c)) return true;
+    }
+  }
+  return isShoppingIntent(text, category, inferredCategories);
+}
+
+function isFinancialBalanceOrSalarySchema(memory = {}) {
+  const category = String(memory.category || "").toLowerCase().trim();
+  const fieldPath = String(memory.field_path || memory.path || "").toLowerCase();
+  const label = String(memory.label || "").toLowerCase();
+  const title = String(memory.title || "").toLowerCase();
+
+  const isBalance = fieldPath.includes("balance") || label.includes("balance") || title.includes("balance");
+  const isFinancialBalance = (category === "finance" && isBalance) || fieldPath.includes("account_balance") || fieldPath.includes("financial_balance");
+  const isSalary = category === "salary" || fieldPath.includes("salary") || label.includes("salary") || title.includes("salary");
+
+  return isFinancialBalance || isSalary;
+}
+
+function isProfessionalQuery(category = null, text = "", inferredCategories = null) {
+  const requested = String(category || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "");
+  if (requested === "professional" || requested === "productivity" || requested === "developerwork" || requested === "developer_work") {
+    return true;
+  }
+  if (inferredCategories instanceof Set) {
+    if (inferredCategories.has("professional") || inferredCategories.has("productivity") || inferredCategories.has("developer_work") || inferredCategories.has("developerwork")) {
+      return true;
+    }
+  }
+  return /\b(professional|productivity|job|work|career|resume|cv|hiring|employer|employee|corporate|office|developer)\b/i.test(String(text || ""));
+}
+
+function isGamingAchievement(memory = {}) {
+  const category = String(memory.category || "").toLowerCase().trim();
+  const fieldPath = String(memory.field_path || memory.path || "").toLowerCase();
+  const label = String(memory.label || "").toLowerCase();
+  const title = String(memory.title || "").toLowerCase();
+  const summary = String(memory.summary || "").toLowerCase();
+
+  const isGaming = category === "gaming" || fieldPath.includes("gaming");
+  if (!isGaming) return false;
+
+  const achievementTerms = ["achievement", "achievements", "trophy", "trophies", "badge", "badges", "high_score", "highscore", "level_cleared", "boss_defeated"];
+  return achievementTerms.some(term =>
+    fieldPath.includes(term) ||
+    label.includes(term) ||
+    title.includes(term) ||
+    summary.includes(term)
+  );
 }
 
 function isDeveloperToolContext(memory = {}) {
@@ -563,8 +611,6 @@ function isDeveloperToolContext(memory = {}) {
 function isMediaPlaybackListeningHistoryBlocked(requestedCategory, requestText, memory = {}) {
   const requested = normalizeDomainKey(requestedCategory);
   if (!requested) return false;
-
-  // Only gate workspaces intended for professional/prod productivity.
   const isWorkWorkspace = requested === "professional" || requested === "productivity";
   if (!isWorkWorkspace) return false;
 
@@ -586,15 +632,9 @@ function isMediaPlaybackListeningHistoryBlocked(requestedCategory, requestText, 
 }
 
 function isPartitionedDomainConflict(requestedCategory, requestText, memory = {}, inferredCategories = null) {
-  // Existing hard conflict gate used by scoreMemory().
-  // The dynamic demotion system uses the same domain pairing semantics
-  // but does not zero scores immediately.
-
   const queryDomains = new Set();
   const normalizedRequested = normalizeDomainKey(requestedCategory);
-
   if (normalizedRequested) queryDomains.add(normalizedRequested);
-
 
   if (inferredCategories instanceof Set) {
     for (const category of inferredCategories) {
@@ -614,12 +654,8 @@ function isPartitionedDomainConflict(requestedCategory, requestText, memory = {}
   const memoryDomain = normalizeDomainKey(memory.category || memory.field_path || memory.path || "");
   if (!memoryDomain) return false;
 
-  const queryHasFoodDelivery = queryDomains.has("food-delivery");
-  const queryHasHealthFitness = queryDomains.has("health-fitness");
-  const memoryIsFoodDelivery = FOOD_DELIVERY_DOMAIN.has(memoryDomain);
-  const memoryIsHealthFitness = HEALTH_FITNESS_DOMAIN.has(memoryDomain);
-
-  return (queryHasFoodDelivery && memoryIsHealthFitness) || (queryHasHealthFitness && memoryIsFoodDelivery);
+  return (queryDomains.has("food-delivery") && HEALTH_FITNESS_DOMAIN.has(memoryDomain)) || 
+         (queryDomains.has("health-fitness") && FOOD_DELIVERY_DOMAIN.has(memoryDomain));
 }
 
 function normalizeDomainKey(value = "") {
@@ -630,7 +666,6 @@ function normalize(value) {
   return String(value || "").toLowerCase().replace(/[^a-z0-9.]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
-// Convert input value into clean tokenized stems
 export function tokens(value) {
   const rawTokens = normalize(value).split(/[.\s_-]+/).filter((token) => token.length >= 3 && !STOP_WORDS.has(token));
   return new Set(rawTokens.map((t) => stem(t)));
@@ -651,9 +686,7 @@ function pathSimilarity(left = "", right = "") {
         const sim = jaroWinkler(part, rPart);
         if (sim > bestFuzzy) bestFuzzy = sim;
       }
-      if (bestFuzzy >= 0.85) {
-        overlap += bestFuzzy;
-      }
+      if (bestFuzzy >= 0.85) overlap += bestFuzzy;
     }
   }
   return overlap / Math.max(leftParts.length, rightParts.length);
@@ -671,14 +704,119 @@ export function stem(word) {
   if (w.endsWith("ing")) return w.slice(0, -3);
   if (w.endsWith("s") && !w.endsWith("ss") && !w.endsWith("us") && !w.endsWith("is") && !w.endsWith("as")) {
     if (w.endsWith("es")) {
-      if (w.endsWith("ses") || w.endsWith("xes") || w.endsWith("ches") || w.endsWith("shes")) {
-        return w.slice(0, -2);
-      }
+      if (w.endsWith("ses") || w.endsWith("xes") || w.endsWith("ches") || w.endsWith("shes")) return w.slice(0, -2);
       return w.slice(0, -1);
     }
     return w.slice(0, -1);
   }
   return w;
+}
+
+function dialectNormalizeLocaleString(value = "") {
+  return String(value || "").trim().toLowerCase();
+}
+
+function dialectNameToLocale(localeOrDialectText = "") {
+  const t = dialectNormalizeLocaleString(localeOrDialectText);
+  const map = {
+    "british english": "en-gb",
+    "uk english": "en-gb",
+    "american english": "en-us",
+    "us english": "en-us",
+    "united states english": "en-us",
+    "canadian english": "en-ca",
+    "australian english": "en-au",
+    "austria german": "de-at",
+    "austrian german": "de-at",
+    "swiss german": "de-ch",
+    "german (switzerland)": "de-ch",
+    "parisian french": "fr-fr",
+    "france french": "fr-fr",
+    "french (france)": "fr-fr"
+  };
+  const compact = t.replace(/[\s_]+/g, " ").replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
+  return map[compact] || null;
+}
+
+function extractLocaleParts(text = "") {
+  const s = dialectNormalizeLocaleString(text);
+  const localeMatch = s.match(/\b([a-z]{2,3})[-_]?([a-z]{2,})\b/);
+  if (localeMatch) {
+    return { lang: localeMatch[1], region: localeMatch[2] };
+  }
+  const langHints = { english: "en", german: "de", french: "fr", spanish: "es", italian: "it", japanese: "ja", korean: "ko", portuguese: "pt" };
+  for (const [name, lang] of Object.entries(langHints)) {
+    if (s.includes(name)) return { lang, region: null };
+  }
+  return { lang: null, region: null };
+}
+
+function dialectLocaleSimilarity(a = "", b = "") {
+  const aText = String(a || "").trim();
+  const bText = String(b || "").trim();
+  if (!aText || !bText) return 0;
+
+  const aLower = dialectNormalizeLocaleString(aText);
+  const bLower = dialectNormalizeLocaleString(bText);
+  if (aLower === bLower) return 1.0;
+
+  const aMapped = dialectNameToLocale(aText);
+  const bMapped = dialectNameToLocale(bText);
+  const aCmp = aMapped || aLower;
+  const bCmp = bMapped || bLower;
+
+  const aParts = aCmp.split(/[-_\s]+/).filter(Boolean);
+  const bParts = bCmp.split(/[-_\s]+/).filter(Boolean);
+  if (aParts.length && bParts.length) {
+    const rightSet = new Set(bParts);
+    let overlap = 0;
+    for (const p of aParts) {
+      if (rightSet.has(p)) overlap += 1;
+    }
+    const componentScore = overlap / Math.max(aParts.length, bParts.length);
+    if (componentScore > 0) return Math.max(componentScore, 0.2);
+  }
+
+  const aLoc = extractLocaleParts(aCmp);
+  const bLoc = extractLocaleParts(bCmp);
+  if (aLoc.lang && bLoc.lang) {
+    if (aLoc.lang === bLoc.lang) {
+      if (aLoc.region && bLoc.region) return aLoc.region === bLoc.region ? 0.95 : 0.55;
+      return 0.7;
+
+    }
+    return 0.15;
+  }
+
+  const fuzzy = jaroWinkler(aLower, bLower);
+  return fuzzy >= 0.85 ? 0.6 + (fuzzy - 0.85) * 0.4 : fuzzy * 0.4;
+}
+
+function dialectLocaleMatchValidationBoost({ requestText = "", requestTokens = new Set(), fieldPath = "", memory = {} } = {}) { 
+  const fp = String(fieldPath || "").toLowerCase();
+  const value = String(memory?.value || "");
+
+  const isDialectField = /dialect|locale/.test(fp);
+  if (!isDialectField) return 0;
+
+  const req = String(requestText || "");
+  const requestLocaleCandidates = [];
+  const localeMatches = req.match(/\b([a-z]{2,3})[-_]?([a-z]{2,})\b/gi) || [];
+  for (const m of localeMatches) requestLocaleCandidates.push(m);
+
+  if (/british|american|australian|canadian|parisian|uk english/i.test(req)) {
+    requestLocaleCandidates.push(req);
+  }
+
+  const sim = requestLocaleCandidates.length
+    ? Math.max(...requestLocaleCandidates.map(c => dialectLocaleSimilarity(c, value)))
+    : dialectLocaleSimilarity(req, value);
+
+  if (sim >= 0.85) return 0.35;
+  if (sim >= 0.65) return 0.22;
+  if (sim >= 0.45) return 0.08;
+  if (sim >= 0.25) return 0.02;
+  return -0.25;
 }
 
 export function jaroWinkler(s1, s2) {
@@ -707,7 +845,6 @@ export function jaroWinkler(s1, s2) {
       }
     }
   }
-
   if (matches === 0) return 0.0;
 
   let transpositions = 0;
@@ -721,17 +858,11 @@ export function jaroWinkler(s1, s2) {
   }
 
   const jaro = (matches / len1 + matches / len2 + (matches - transpositions / 2) / matches) / 3;
-
-  const prefixLimit = 4;
   let commonPrefix = 0;
-  for (let i = 0; i < Math.min(prefixLimit, len1, len2); i++) {
-    if (s1[i] === s2[i]) {
-      commonPrefix++;
-    } else {
-      break;
-    }
+  for (let i = 0; i < Math.min(4, len1, len2); i++) {
+    if (s1[i] === s2[i]) commonPrefix++;
+    else break;
   }
-
   return jaro + commonPrefix * 0.1 * (1 - jaro);
 }
 
@@ -740,6 +871,7 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
   const categoryHints = Array.isArray(taskContext?.category_hints) ? taskContext.category_hints : [];
   const weights = taskContext?.importance_weights || {};
 
+  const taskLower = String(taskText || "").toLowerCase();
   const taskTokens = tokens(taskText);
   const taskLower = String(taskText || "").toLowerCase();
 
@@ -759,39 +891,29 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
 
   for (const [cat, keywords] of Object.entries(categoryKeywords)) {
     for (const kw of keywords) {
-      if (taskTokens.has(stem(kw))) {
-        inferredCategories.add(cat);
-      }
+      if (taskTokens.has(stem(kw))) inferredCategories.add(cat);
     }
   }
 
   const scored = (Array.isArray(memoryRecords) ? memoryRecords : []).map((memory) => {
     const fieldPath = String(memory.field_path || memory.path || "");
     const category = String(memory.category || "").toLowerCase();
+    
     if (isPartitionedDomainConflict(null, taskText, memory, inferredCategories)) {
-      return {
-        memory,
-        score: 0,
-        reasons: ["cross-domain partition blocked"]
-      };
+      return { memory, score: 0, reasons: ["cross-domain partition blocked"] };
     }
-    if (isShoppingIntent(taskText, null, inferredCategories) && isDeveloperToolContext(memory)) {
-      return {
-        memory,
-        score: 0,
-        reasons: ["developer tool context suppressed for shopping query"]
-      };
+    if (isDeveloperToolContext(memory) && isShoppingOrRetailQuery(taskText, null, inferredCategories)) {
+      return { memory, score: 0, reasons: ["developer tool context suppressed for shopping/retail query"] };
+    }
+
+    if (isShoppingOrRetailQuery(taskText, null, inferredCategories) && isFinancialBalanceOrSalarySchema(memory)) {
+      return { memory, score: 0, reasons: ["financial balance or salary context blocked for shopping/retail application"] };
+    }
+    if (isProfessionalQuery(null, taskText, inferredCategories) && isGamingAchievement(memory)) {
+      return { memory, score: 0, reasons: ["gaming achievements filtered out from professional context query results"] };
     }
     
-    const searchable = [
-      fieldPath,
-      category,
-      memory.label,
-      memory.title,
-      memory.summary,
-      memory.value,
-      ...(memory.themes || [])
-    ].join(" ");
+    const searchable = [fieldPath, category, memory.label, memory.title, memory.summary, memory.value, ...(memory.themes || [])].join(" ");
     const candidateTokens = tokens(searchable);
     
     let overlap = 0;
@@ -804,48 +926,40 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
           const sim = jaroWinkler(token, candToken);
           if (sim > bestFuzzy) bestFuzzy = sim;
         }
-        if (bestFuzzy >= 0.85) {
-          overlap += bestFuzzy;
-        }
+        if (bestFuzzy >= 0.85) overlap += bestFuzzy;
       }
     }
     const lexicalScore = taskTokens.size ? overlap / taskTokens.size : 0;
+    const reasons = [];
 
     let categoryMatchScore = 0;
     if (inferredCategories.has(category)) {
       categoryMatchScore = 0.5;
-    } else {
-      const pathParts = fieldPath.split(".");
-      if (pathParts.some(part => inferredCategories.has(part))) {
-        categoryMatchScore = 0.4;
-      }
+    } else if (fieldPath.split(".").some(part => inferredCategories.has(part))) {
+      categoryMatchScore = 0.4;
     }
 
     let relevanceVectorScore = 0;
     if (memory.relevance_vectors) {
       for (const activeCat of inferredCategories) {
-        if (memory.relevance_vectors[activeCat]) {
-          relevanceVectorScore = Math.max(relevanceVectorScore, memory.relevance_vectors[activeCat]);
-        }
+        if (memory.relevance_vectors[activeCat]) relevanceVectorScore = Math.max(relevanceVectorScore, memory.relevance_vectors[activeCat]);
       }
     }
 
     let customWeight = 1.0;
-    if (weights[category]) {
-      customWeight = weights[category];
-    }
+    if (weights[category]) customWeight = weights[category];
     for (const [key, wt] of Object.entries(weights)) {
-      if (fieldPath.includes(key)) {
-        customWeight = Math.max(customWeight, wt);
-      }
+      if (fieldPath.includes(key)) customWeight = Math.max(customWeight, wt);
     }
 
-
-      let crossCategoryPromotionBoost = 0;
-      if (category === "learning") {
+    let crossCategoryPromotionBoost = 0;
+    if (category === "learning") {
+      const isLanguageLearningTopicField = /(^|\.)active_topics$|(^|\.)current_goals$|(^|\.)dialect_preferences$|(^|\.)dialect_preferences\.|(^|\.)target_languages$/.test(fieldPath);
+      if (isLanguageLearningTopicField) {
         for (const [destination, language] of Object.entries(TRAVEL_LANGUAGE_PROMOTION_MAP)) {
           if (taskLower.includes(destination)) {
-            if (fieldPath.includes(language) || searchable.toLowerCase().includes(language)) {
+            const searchableLower = String(searchable).toLowerCase();
+            if (fieldPath.includes(language) || searchableLower.includes(language)) {
               crossCategoryPromotionBoost = 0.35;
               reasons.push(`cross-category travel boost: ${destination} -> ${language}`);
               break;
@@ -853,21 +967,17 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
           }
         }
       }
+    }
   
     const rawScore = Math.max(lexicalScore, categoryMatchScore, relevanceVectorScore, crossCategoryPromotionBoost) * customWeight;
     const score = Number(Math.max(0, Math.min(1, rawScore)).toFixed(3));
 
-    const reasons = [];
     if (lexicalScore > 0) reasons.push("lexical overlap");
     if (categoryMatchScore > 0) reasons.push("category match");
     if (relevanceVectorScore > 0) reasons.push("relevance vector mapping");
     if (customWeight !== 1.0) reasons.push(`custom weight multiplier: ${customWeight}`);
 
-    return {
-      memory,
-      score,
-      reasons: reasons.length ? reasons : ["weak semantic fallback"]
-    };
+    return { memory, score, reasons: reasons.length ? reasons : ["weak semantic fallback"] };
   });
 
   const threshold = options.threshold ?? 0.10;
@@ -877,13 +987,8 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
 }
 
 export class CrossCategoryRelevanceRanker {
-  constructor(options = {}) {
-    this.threshold = options.threshold ?? 0.10;
-  }
-
-  rank(taskContext, memoryRecords) {
-    return rankContextNodes(taskContext, memoryRecords, { threshold: this.threshold });
-  }
+  constructor(options = {}) { this.threshold = options.threshold ?? 0.10; }
+  rank(taskContext, memoryRecords) { return rankContextNodes(taskContext, memoryRecords, { threshold: this.threshold }); }
 }
 
 export class CollisionTree {
@@ -892,7 +997,6 @@ export class CollisionTree {
     this.children = new Map();
     this.priorityList = null;
   }
-
   setPriority(path, priorities) {
     const parts = typeof path === "string" ? path.split(".") : path;
     if (!parts || parts.length === 0 || (parts.length === 1 && parts[0] === "")) {
@@ -900,12 +1004,9 @@ export class CollisionTree {
       return;
     }
     const [first, ...rest] = parts;
-    if (!this.children.has(first)) {
-      this.children.set(first, new CollisionTree(first));
-    }
+    if (!this.children.has(first)) this.children.set(first, new CollisionTree(first));
     this.children.get(first).setPriority(rest, priorities);
   }
-
   getPriority(path) {
     const parts = typeof path === "string" ? path.split(".") : path;
     let current = this;
@@ -913,12 +1014,8 @@ export class CollisionTree {
     for (const part of parts) {
       if (current.children.has(part)) {
         current = current.children.get(part);
-        if (current.priorityList !== null) {
-          bestPriority = current.priorityList;
-        }
-      } else {
-        break;
-      }
+        if (current.priorityList !== null) bestPriority = current.priorityList;
+      } else break;
     }
     return bestPriority;
   }
@@ -927,13 +1024,9 @@ export class CollisionTree {
 export function resolveOverwriteCollisions(writes = [], priorityTree = null, categoryWeights = {}) {
   const grouped = {};
   for (const write of writes) {
-    const path = write.path;
-    if (!grouped[path]) {
-      grouped[path] = [];
-    }
-    grouped[path].push(write);
+    grouped[write.path] ||= [];
+    grouped[write.path].push(write);
   }
-
   const resolved = {};
   const routedToCRP = [];
 
@@ -942,12 +1035,7 @@ export function resolveOverwriteCollisions(writes = [], priorityTree = null, cat
       resolved[path] = pathWrites[0];
       continue;
     }
-
-    let priorities = null;
-    if (priorityTree) {
-      priorities = priorityTree.getPriority(path);
-    }
-
+    let priorities = priorityTree ? priorityTree.getPriority(path) : null;
     let winningWrite = null;
 
     if (priorities && priorities.length > 0) {
@@ -956,41 +1044,18 @@ export function resolveOverwriteCollisions(writes = [], priorityTree = null, cat
       for (const w of pathWrites) {
         const idx = priorities.indexOf(w.category);
         if (idx !== -1) {
-          if (idx < bestIndex) {
-            bestIndex = idx;
-            candidates = [w];
-          } else if (idx === bestIndex) {
-            candidates.push(w);
-          }
+          if (idx < bestIndex) { bestIndex = idx; candidates = [w]; }
+          else if (idx === bestIndex) candidates.push(w);
         }
       }
-      if (candidates.length === 1) {
-        winningWrite = candidates[0];
-      } else if (candidates.length > 1) {
-        winningWrite = resolveByWeights(candidates, categoryWeights);
-      }
+      if (candidates.length === 1) winningWrite = candidates[0];
+      else if (candidates.length > 1) winningWrite = resolveByWeights(candidates, categoryWeights);
     }
-
-    if (!winningWrite) {
-      winningWrite = resolveByWeights(pathWrites, categoryWeights);
-    }
-
-    if (winningWrite) {
-      resolved[path] = winningWrite;
-    } else {
-      routedToCRP.push({
-        path,
-        reason: "collision_unresolved",
-        writes: pathWrites,
-        route_to_crp: true
-      });
-    }
+    if (!winningWrite) winningWrite = resolveByWeights(pathWrites, categoryWeights);
+    if (winningWrite) resolved[path] = winningWrite;
+    else routedToCRP.push({ path, reason: "collision_unresolved", writes: pathWrites, route_to_crp: true });
   }
-
-  return {
-    resolved,
-    routedToCRP
-  };
+  return { resolved, routedToCRP };
 }
 
 function resolveByWeights(writes, categoryWeights) {
@@ -998,30 +1063,17 @@ function resolveByWeights(writes, categoryWeights) {
   let candidates = [];
   for (const w of writes) {
     const weight = categoryWeights[w.category] !== undefined ? categoryWeights[w.category] : 1.0;
-    if (weight > maxWeight) {
-      maxWeight = weight;
-      candidates = [w];
-    } else if (weight === maxWeight) {
-      candidates.push(w);
-    }
+    if (weight > maxWeight) { maxWeight = weight; candidates = [w]; }
+    else if (weight === maxWeight) candidates.push(w);
   }
-  if (candidates.length === 1) {
-    return candidates[0];
-  }
+  if (candidates.length === 1) return candidates[0];
   
   let maxConfidence = -Infinity;
   let confidenceCandidates = [];
   for (const w of candidates) {
     const conf = w.confidence !== undefined ? w.confidence : 1.0;
-    if (conf > maxConfidence) {
-      maxConfidence = conf;
-      confidenceCandidates = [w];
-    } else if (conf === maxConfidence) {
-      confidenceCandidates.push(w);
-    }
+    if (conf > maxConfidence) { maxConfidence = conf; confidenceCandidates = [w]; }
+    else if (conf === maxConfidence) confidenceCandidates.push(w);
   }
-  if (confidenceCandidates.length === 1) {
-    return confidenceCandidates[0];
-  }
-  return null;
+  return confidenceCandidates.length === 1 ? confidenceCandidates[0] : null;
 }
