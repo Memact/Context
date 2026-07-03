@@ -289,7 +289,17 @@ export function shapeContextProposal(input = {}, options = {}) {
   const submission = normalizeContextInput(input)
   const category = submission.category || options.category || "general"
   const sourceTrail = buildContextSourceTrail(submission)
-  const confidence = submission.kind === "raw_signal" ? 0.35 : sourceTrail.length ? 0.7 : 0.55
+  
+  // 1. Determine temporary flag and optional custom ttl from submission or options
+  const isTemporary = !!(submission.temporary ?? options.temporary ?? false);
+  const ttl = submission.ttl ?? options.ttl ?? null; // e.g., timestamp or millisecond offset
+
+  // 2. Adjust default baseline confidence score if temporary
+  let confidence = submission.kind === "raw_signal" ? 0.35 : sourceTrail.length ? 0.7 : 0.55
+  if (isTemporary) {
+    confidence = Math.max(0.1, confidence - 0.2); // Lower confidence score for temporary items
+  }
+
   const context = submission.kind === "raw_signal"
     ? contextFromSignal(submission)
     : sanitizeContextObject(submission.context || submission.value || {})
@@ -305,6 +315,10 @@ export function shapeContextProposal(input = {}, options = {}) {
     visibility: "private",
     user_action_required: true,
     source_trail: sourceTrail,
+
+    // 3. New Schema Fields Added Here
+    temporary: isTemporary,
+    ttl: ttl,
     guardrails: [
       "Activity is not identity.",
       "User must be able to accept, edit, reject, or delete this before it becomes memory.",
@@ -483,14 +497,19 @@ export function formatSchemaReport(result) {
     "Virtual Context Patterns",
   ];
 
-  if (!result.schemas.length) {
+  if (!result.schemas || !result.schemas.length) {
     lines.push("No virtual cognitive schemas met the formation threshold.");
     return lines.join("\n");
   }
 
   result.schemas.forEach((schema, index) => {
-    lines.push(`${index + 1}. ${schema.label}`);
+    // Add a visual [TEMPORARY] badge if the schema configuration reflects a temporary state
+    const badge = schema.temporary ? " [TEMPORARY]" : "";
+    lines.push(`${index + 1}. ${schema.label}${badge}`);
     lines.push(`   state=${schema.state} support=${schema.support} weighted=${schema.weighted_support.toFixed(3)} confidence=${schema.confidence.toFixed(3)}`);
+    if (schema.ttl) {
+      lines.push(`   expires=${new Date(schema.ttl).toISOString()}`);
+    }
     lines.push(`   basis=${schema.formation_basis}`);
     lines.push(`   frame=${schema.core_interpretation}`);
   });
