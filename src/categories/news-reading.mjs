@@ -2,8 +2,10 @@
  * src/categories/news-reading.mjs
  */
 
+
 export const newsReadingCategory = {
   name: 'news-reading',
+  decayCoefficient: 0.15,
   description: 'Models user reading habits, including preferred publishers, avoided topics, and article length.',
 
   /**

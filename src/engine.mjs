@@ -1085,3 +1085,49 @@ function slug(value) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "schema";
 }
+// Centralized category decay parameters registry
+const CATEGORY_DECAY_REGISTRY = {
+  "news-reading": 0.15,
+  "news": 0.15,
+  "shopping": 0.08,
+  "learning": 0.02,
+  "research": 0.02,
+  "productivity": 0.04,
+  "developer_work": 0.03,
+  "general": 0.05,
+  "health": 0.005, 
+};
+
+const DEFAULT_DECAY_COEFFICIENT = 0.05;
+const DECAY_ELIMINATION_THRESHOLD = 0.15;
+
+/**
+ * Executes a memory pruning pass by applying category-specific decay coefficients.
+ */
+export function decayMemories(records = []) {
+  if (!Array.isArray(records)) return [];
+
+  return records
+    .map(record => {
+      let recordCategory = record.category;
+      
+      if (!recordCategory || !(recordCategory in CATEGORY_DECAY_REGISTRY)) {
+        recordCategory = record.evidence?.category || inferRecordCategory(record);
+      }
+      
+      const coefficient = recordCategory in CATEGORY_DECAY_REGISTRY 
+        ? CATEGORY_DECAY_REGISTRY[recordCategory] 
+        : DEFAULT_DECAY_COEFFICIENT;
+      
+      const currentConfidence = Number(record.confidence ?? 0.5);
+      const decayedConfidence = round(Math.max(0, currentConfidence - coefficient));
+
+      return {
+        ...record,
+        confidence: decayedConfidence,
+        decay_applied: coefficient,
+        last_pruned_at: new Date().toISOString()
+      };
+    })
+    .filter(record => record.confidence >= DECAY_ELIMINATION_THRESHOLD);
+}

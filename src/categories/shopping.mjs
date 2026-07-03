@@ -1,5 +1,5 @@
 export const category = "shopping";
-
+export const decayCoefficient = 0.08;
 export const contextFields = {
   preferred_categories: "Stable product categories the user repeatedly chooses across multiple personal purchases.",
   disliked_categories: "Product categories the user consistently avoids or dismisses.",
