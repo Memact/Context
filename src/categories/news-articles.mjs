@@ -1,3 +1,5 @@
+import { shouldGraduateToDurable } from "./validation-helper.mjs";
+
 /**
  * News & Articles Category Schema and Context Shaping Module
  * Defines the schema structure, permissions, sensitivity rules,
@@ -214,7 +216,7 @@ export function normalizeReadingActivity(rawActivity = [], options = {}) {
   Object.values(topicStats).forEach(stat => {
     const isSensitive = SENSITIVE_TOPIC_RULES.isSensitive(stat.topic);
     const distinctDays = stat.dates.size;
-    const isDurable = stat.article_count >= 3 && distinctDays >= 2;
+    const isDurable = shouldGraduateToDurable(stat.article_count, distinctDays);
 
     // Calculate confidence: base score derived from distinct reading days and frequency
     let confidence = Math.min(1.0, (distinctDays * 0.35) + (stat.article_count * 0.05));
