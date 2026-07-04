@@ -43,3 +43,62 @@ test("Schema overlay compiler merges patches and evaluates live runtime inputs c
   assert.equal(result2.ok, false);
   assert.equal(result2.errors.length, 2);
 });
+
+test("overlay-compiler - compileSchemaOverlay traces validation failures with path and format details", (t) => {
+  // 1. Intercept console.error output streams safely
+  const originalConsoleError = console.error;
+  let traceOutput = null;
+
+  console.error = (msg) => {
+    try {
+      traceOutput = JSON.parse(msg);
+    } catch (e) {
+      traceOutput = msg;
+    }
+  };
+
+  // 2. Setup structural base schema definitions
+  const baseSchema = {
+    sections: {
+      profile: {
+        fields: {
+          age: { type: "Number" },
+          role: { type: "enum", values: ["admin", "user"] }
+        }
+      }
+    }
+  };
+
+  const validate = compileSchemaOverlay(baseSchema, {});
+  
+  // 3. Inject explicit invalid formats to trigger constraints
+  const invalidData = {
+    profile: {
+      age: "twenty-two",   // Expected number validation failure
+      role: "super-admin"  // Out of bounds enum validation failure
+    }
+  };
+
+  const result = validate(invalidData);
+
+  // 4. Instantly restore global standard error logging state
+  console.error = originalConsoleError;
+
+  // 5. Verification Assertions
+  assert.strictEqual(result.ok, false, "Validation status must evaluate to false");
+  assert.ok(traceOutput, "Trace stream logger must output validation telemetry via console.error");
+  assert.strictEqual(traceOutput.event, "SEMANTIC_OVERLAY_VALIDATION_FAILURE", "Telemetry tracer event identifier mismatch");
+  assert.strictEqual(traceOutput.failures.length, 2, "Tracer failure collection length must capture all broken paths");
+
+  // Validate path validation trace structure: profile.age
+  const ageFailure = traceOutput.failures.find(f => f.path === "profile.age");
+  assert.ok(ageFailure, "Missing tracking entry for path field profile.age");
+  assert.strictEqual(ageFailure.error, "type_mismatch");
+  assert.match(ageFailure.message, /Expected number/, "Trace message text should display expected formatting metadata");
+
+  // Validate path validation trace structure: profile.role
+  const roleFailure = traceOutput.failures.find(f => f.path === "profile.role");
+  assert.ok(roleFailure, "Missing tracking entry for path field profile.role");
+  assert.strictEqual(roleFailure.error, "invalid_enum_value");
+  assert.match(roleFailure.message, /out of bounds/, "Trace message text should outline enum bound restrictions");
+});
