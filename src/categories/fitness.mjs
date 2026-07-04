@@ -14,6 +14,37 @@
  */
 
 // Sensitive or careful fields clearly marked
+export const category = "fitness";
+export const contextFields = {
+  activity_log: { 
+    description: "General fitness or movement logs (e.g., walked, cycled)", 
+    variance_threshold_duration_pct: 0.40 
+  },
+  meal_log: { 
+    description: "Food and calorie logging inputs", 
+    variance_threshold_calories: 600 
+  },
+  goal: { description: "Durable fitness goals" },
+  dietary_preference: { description: "Durable dietary paths" },
+  activity_level: { description: "User standard moving profile baseline" },
+  preferred_workout_type: { description: "User baseline routine style" }
+};
+
+// 1. Declare Value Variance Thresholds in the schema metadata
+export const contextFields = {
+  activity_log: { 
+    description: "General fitness or movement logs (e.g., walked, cycled)", 
+    variance_threshold_duration_pct: 0.40 // Anomaly if workout time drops below 40% of standard
+  },
+  meal_log: { 
+    description: "Food and calorie logging inputs", 
+    variance_threshold_calories: 600 // Anomaly if a meal deviates by more than 600 kcal from standard
+  },
+  goal: { description: "Durable fitness goals" },
+  dietary_preference: { description: "Durable dietary paths" },
+  activity_level: { description: "User standard moving profile baseline" },
+  preferred_workout_type: { description: "User baseline routine style" }
+};
 export const SENSITIVE_FIELDS = new Set([
   "allergies",
   "health_conditions",
@@ -40,7 +71,26 @@ export const DURABLE_PREFERENCES = new Set([
  * @param {Object} input.data - The event or preference payload
  * @param {boolean} input.explicit - Whether the user explicitly provided this in a form
  */
-export function normalizeFitnessContext(input) {
+ 
+ function parseDurationToMinutes(duration) {
+  if (typeof duration === "number") return duration;
+  if (typeof duration === "string") {
+    const mins = parseInt(duration.match(/(\d+)/)?.[1] || 0);
+    return mins || null;
+  }
+  return null;
+}
+function parseCalories(calories) {
+  if (typeof calories === "number") return calories;
+  if (typeof calories === "string") {
+    return parseInt(calories.match(/(\d+)/)?.[1] || 0) || null;
+  }
+  return null;
+}
+let discrepancyDetected = false;
+let customSuggestion = null;
+
+export function normalizeFitnessContext(input,baseline=null) {
   if (!input || !input.data) return null;
 
   const { source, type, data, explicit = false } = input;
@@ -56,6 +106,29 @@ export function normalizeFitnessContext(input) {
       reason: "Sensitive fields (like allergies) cannot be inferred from activity. They require explicit user consent."
     };
   }
+  if (baseline) {
+  
+    if (type === "activity" && cleanedData.duration && baseline.avg_activity_duration_minutes) {
+      const incomingMins = parseDurationToMinutes(cleanedData.duration);
+      if (incomingMins) {
+        const floor = baseline.avg_activity_duration_minutes * contextFields.activity_log.variance_threshold_duration_pct;
+        if (incomingMins < floor) {
+          discrepancyDetected = true;
+          customSuggestion = "This workout was significantly shorter than your typical logged intensity. Log as anomaly?";
+        }
+      }
+    }
+    if (type === "meal" && cleanedData.calories && baseline.avg_meal_calories) {
+      const incomingKcal = parseCalories(cleanedData.calories);
+      if (incomingKcal) {
+        const variance = Math.abs(incomingKcal - baseline.avg_meal_calories);
+        if (variance > contextFields.meal_log.variance_threshold_calories) {
+          discrepancyDetected = true;
+          customSuggestion = "This meal's calorie volume reflects a major deviation from your standard macro baseline. Log as anomaly?";
+        }
+      }
+    }
+  }
 
   // 2. Handle Activity & Meals (Activity is not identity)
   if (type === "activity" || type === "meal") {
@@ -67,11 +140,11 @@ export function normalizeFitnessContext(input) {
     return {
       category: "fitness",
       source,
-      observation_type: "weak_observation",
-      confidence: "low",
+      observation_type: discrepancyDetected ? "anomaly_observation" : "weak_observation",
+      confidence: discrepancyDetected ? "low" : "medium",
       is_identity_claim: false,
       observation: summary,
-      suggestion: generateUserReadableSuggestion(type, data),
+      suggestion:customSuggestion || generateUserReadableSuggestion(type, data),
       needs_review: true // Users decide what stays
     };
   }
