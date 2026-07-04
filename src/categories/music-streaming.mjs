@@ -25,12 +25,13 @@ export function normalizeMusicContext(input) {
   const cleanedData = { ...data };
   SENSITIVE_FIELDS.forEach(field => delete cleanedData[field]);
 
+  let normalizedResult;
+
   // Transient signals (Activity is not identity)
-  // E.g., skipping a song once, or just casually clicking a playlist
   if (type === "activity") {
     const isSkip = data.action === 'skip';
     
-    return {
+    normalizedResult = {
       category: "music-streaming",
       source,
       observation_type: "weak_observation",
@@ -44,10 +45,9 @@ export function normalizeMusicContext(input) {
       needs_review: true
     };
   }
-
   // Durable preference handling
-  if (type === "preference") {
-    return {
+  else if (type === "preference") {
+    normalizedResult = {
       category: "music-streaming",
       source,
       observation_type: explicit ? "explicit_preference" : "inferred_preference",
@@ -58,9 +58,26 @@ export function normalizeMusicContext(input) {
       suggestion: explicit ? null : "Update your music preferences based on recent listening habits?",
       needs_review: !explicit
     };
+  } else {
+    normalizedResult = { category: "music-streaming", source, observation_type: "unknown", confidence: "low" };
   }
 
-  return { category: "music-streaming", source, observation_type: "unknown", confidence: "low" };
+  // --- NEW: Context Query Tracer ---
+  // The issue specifically requests tracing for Spotify dynamic playlist queries
+  if (source && source.toLowerCase().includes("spotify")) {
+    const tracePayload = {
+      event: "SPOTIFY_DYNAMIC_PLAYLIST_QUERY",
+      timestamp: new Date().toISOString(),
+      query_parameters: cleanedData,
+      matching_weight: normalizedResult.confidence, 
+      observation_type: normalizedResult.observation_type
+    };
+    
+    // Outputting as a structured JSON string to stdout is standard for log ingestion 
+    console.info(JSON.stringify(tracePayload));
+  }
+
+  return normalizedResult;
 }
 
 // --- DECLARATIVE EXAMPLES ---
