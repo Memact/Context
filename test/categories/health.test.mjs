@@ -2,6 +2,12 @@
 import assert from 'assert';
 import * as healthSchema from '../../src/categories/health.mjs';
 
+const mockBaseline = {
+    avg_sleep_minutes: 480,    // 8 hours standard
+    avg_activity_minutes: 45,  // 45 minutes standard session
+    avg_hydration_ml: 2000     // 2 Liters standard intake
+  };
+
 describe('Health Category Schema & Privacy Guardrails', () => {
 
   it('should explicitly drop sensitive vitals and medical data', () => {
@@ -42,7 +48,7 @@ describe('Health Category Schema & Privacy Guardrails', () => {
     assert.strictEqual(normalized.visibility, 'private');
   });
 
-  it('should treat one-off health logs as weak observations', () => {
+  it('should treat one-off health logs as weak observations( noise filtering)', () => {
     const rawHydration = {
       source: 'water_tracker',
       type: 'activity',
@@ -57,4 +63,22 @@ describe('Health Category Schema & Privacy Guardrails', () => {
     assert.strictEqual(normalized.is_identity_claim, false);
     assert.strictEqual(normalized.needs_review, true);
   });
+  
+  it('should catch and flag value variance anomalies when thresholds are breached', () => {
+    const rawSleepAnomaly = {
+      source: 'sleep_cycle',
+      type: 'activity',
+      data: {
+        sleep_session: '4 hours 0 minutes' // 240 mins vs 480 baseline = 240 min variance (> 150 threshold)
+      }
+    };
+
+    const normalized = healthSchema.normalizeHealthContext(rawSleepAnomaly, mockBaseline);
+
+    assert.strictEqual(normalized.observation_type, 'anomaly_observation');
+    assert.strictEqual(normalized.confidence, 'low');
+    assert.match(normalized.suggestion, /sharp deviation/);
+  });
 });
+
+    
