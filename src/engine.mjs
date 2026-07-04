@@ -181,6 +181,39 @@ const COGNITIVE_DIMENSIONS = {
   ],
 };
 
+// 🔒 Issue #171: Restricted Data Key Regex Rules
+const RESTRICTED_COORDINATE_PATTERNS = /\b(lat|lng|latitude|longitude|gps|coordinates|coord|location_?coords)\b/i;
+const RESTRICTED_FINANCIAL_PATTERNS = /\b(amount|price|balance|cost|quantity|total_?amount|net_?pay|salary|account_balance)\b/i;
+
+/**
+ * Technical Filter Utility: Recursively strips restricted paths and tracks lineage logs
+ */
+export function enforceIngestionBoundaries(payload = {}, droppedFieldsTracker = []) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
+
+  return Object.fromEntries(
+    Object.entries(payload).map(([key, value]) => {
+      const isCoordinate = RESTRICTED_COORDINATE_PATTERNS.test(key);
+      const isFinancial = RESTRICTED_FINANCIAL_PATTERNS.test(key);
+
+      if (isCoordinate || isFinancial) {
+        droppedFieldsTracker.push({
+          field: key,
+          type: isCoordinate ? "restricted_coordinate" : "restricted_financial_quantity",
+          occurred_at: new Date().toISOString()
+        });
+        return [key, undefined];
+      }
+
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        return [key, enforceIngestionBoundaries(value, droppedFieldsTracker)];
+      }
+
+      return [key, value];
+    }).filter(([_, v]) => v !== undefined)
+  );
+}
+
 export function detectSchemas(inferenceOutput, options = {}) {
   const minSupport = Number(options.minSupport ?? DEFAULT_MIN_SUPPORT);
   const minimumMeaningfulScore = Number(options.minimumMeaningfulScore ?? DEFAULT_MIN_MEANINGFUL_SCORE);
@@ -239,10 +272,8 @@ export function groupByCategory(records = []) {
 export function inferSchemaType(record = {}) {
   const themes = Array.isArray(record.canonical_themes) ? record.canonical_themes : []
   const category = (record.category || "").toLowerCase()
-  // If the record explicitly declares its category as music, prefer that.
   if (category === "music") return "music_preferences"
   const text = `${category} ${themes.join(" ")} ${record.evidence?.title || ""}`.toLowerCase()
-  // Anchor on word boundaries and accept common plural forms to avoid substring false-positives
   if (/\b(?:music|songs?|playlists?|artists?|albums?|tracks?|genres?|listening)\b/.test(text)) return "music_preferences"
   if (/reading|article|summary|scroll|finish|completion/.test(text)) return "reading_preferences"
   if (/\b(shopping|shop|commerce|product|products)\b/.test(text)) return "shopping"
@@ -288,6 +319,12 @@ export function createSchemaPacket(group = [], options = {}) {
 export function shapeContextProposal(input = {}, options = {}) {
   const submission = normalizeContextInput(input)
   const category = submission.category || options.category || "general"
+
+  const verification = verifyContextPayload(submission, options)
+  if (!verification.safe) {
+    return buildQuarantinedProposal(category, verification)
+  }
+
   const sourceTrail = buildContextSourceTrail(submission)
   
   // Vacation Mode trigger check
@@ -297,15 +334,21 @@ export function shapeContextProposal(input = {}, options = {}) {
 
   let confidence = submission.kind === "raw_signal" ? 0.35 : sourceTrail.length ? 0.7 : 0.55
   if (shouldForceTransient) {
-    // Cap confidence so it stays a weak observation, matching the transient scope rules
     confidence = Math.min(confidence, 0.35);
   }
 
-  const context = submission.kind === "raw_signal"
+  let context = submission.kind === "raw_signal"
     ? contextFromSignal(submission)
     : sanitizeContextObject(submission.context || submission.value || {})
 
-  // Force the memory scope attribute inside the context object to be transient
+  // 🔒 Issue #171 Boundary Scrubber Execution Pass
+  const droppedFields = [];
+  if (context.evidence) {
+    context.evidence = enforceIngestionBoundaries(context.evidence, droppedFields);
+  } else {
+    context = enforceIngestionBoundaries(context, droppedFields);
+  }
+
   if (shouldForceTransient) {
     context.scope = "temporary_intent";
     context.transient = true;
@@ -324,11 +367,14 @@ export function shapeContextProposal(input = {}, options = {}) {
     visibility: "private",
     user_action_required: true,
     source_trail: sourceTrail,
+    dropped_fields: droppedFields,
+    drop_reason: droppedFields.length ? "sensitivity_boundary_restriction" : null,
     guardrails: [
       "Activity is not identity.",
       "User must be able to accept, edit, reject, or delete this before it becomes memory.",
       "Do not expose raw private data by default.",
-      ...(shouldForceTransient ? ["Vacation Mode Guardrail: Do not graduate to durable memory profiles."] : [])
+      ...(shouldForceTransient ? ["Vacation Mode Guardrail: Do not graduate to durable memory profiles."] : []),
+      ...(droppedFields.length ? ["Sensitivity Boundary Guardrail: Raw telemetry coordinates and balances stripped."] : [])
     ],
     created_at: new Date().toISOString()
   }
@@ -444,10 +490,6 @@ function buildMusicAttributes(records = []) {
     attributes[spec.output] = collectEvidenceValues(records, spec.aliases)
   }
 
-  // Sensitive keys are flagged for review when the app provided a meaningful value.
-  // We do NOT flag keys that are present but empty (empty string/empty array/empty object).
-  // This avoids false positives where an app includes a key name for schema reasons
-  // but does not provide identifying information (e.g. an empty `location` placeholder).
   const sensitiveFieldsRaw = records.flatMap((record) => {
     const evidence = record.evidence || {}
     return Object.keys(evidence).filter((key) => {
@@ -457,7 +499,6 @@ function buildMusicAttributes(records = []) {
       if (typeof v === "string") return v.trim() !== ""
       if (Array.isArray(v)) return v.length > 0
       if (typeof v === "object") return Object.keys(v).length > 0
-      // numbers and booleans are considered meaningful when present
       return true
     })
   })
@@ -478,17 +519,12 @@ function normalizeEvidenceValue(value) {
   if (Array.isArray(value)) {
     return value.flatMap((item) => normalizeEvidenceValue(item))
   }
-
   if (value === null || value === undefined || value === "") {
     return []
   }
-
-  // Preserve string values verbatim (as single entries).
-  // Splitting on commas can break legitimate names like "Earth, Wind & Fire".
   if (typeof value === "string") {
     return [value.trim()]
   }
-
   return [String(value)]
 }
 
@@ -1104,4 +1140,290 @@ function slug(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "schema";
+}
+export function traceEvidenceLineage(sourceTrail = []) {
+  if (!Array.isArray(sourceTrail) || sourceTrail.length === 0) {
+    return "Based on systemic configuration defaults.";
+  }
+
+  let totalSessions = sourceTrail.length;
+  const uniqueDays = new Set();
+  const sources = new Set();
+
+  for (const entry of sourceTrail) {
+    const appLabel = entry.type || entry.source_label || (entry.evidence && entry.evidence.source);
+    if (appLabel) sources.add(appLabel);
+
+    const timeVal = entry.started_at || entry.ended_at || entry.occurred_at;
+    const timestamp = Date.parse(timeVal || "");
+    if (Number.isFinite(timestamp)) {
+      uniqueDays.add(new Date(timestamp).toISOString().slice(0, 10));
+    }
+  }
+
+  const sourceStr = sources.size > 0 ? [...sources].join(", ") : "tracked activities";
+  const dayCount = uniqueDays.size || 1;
+  const sessionWord = totalSessions === 1 ? "session" : "sessions";
+  const dayWord = dayCount === 1 ? "day" : "days";
+
+  return `Based on ${totalSessions} ${sourceStr} ${sessionWord} over ${dayCount} ${dayWord}.`;
+}
+
+export const DEFAULT_PAYLOAD_LIMITS = Object.freeze({
+  maxFieldLength: 4000,
+  maxTotalTextLength: 20000,
+  maxFields: 200,
+  maxDepth: 8,
+});
+
+const PAYLOAD_INJECTION_RULES = Object.freeze([
+  { id: "prompt_instruction_override", category: "prompt_injection", pattern: /\b(ignore|disregard|forget|override)\b[\s\S]{0,40}\b(previous|prior|earlier|above|all|your)\b[\s\S]{0,24}\b(instruction|instructions|prompt|prompts|context|rule|rules|directive)/i },
+  { id: "prompt_role_override", category: "prompt_injection", pattern: /\b(you are now|act as|pretend to be|from now on you|roleplay as)\b/i },
+  { id: "prompt_jailbreak", category: "prompt_injection", pattern: /\b(system prompt|developer mode|jailbreak|do anything now|dan mode|without restrictions?)\b/i },
+  { id: "chat_template_delimiter", category: "prompt_injection", pattern: /<\|?\s*(im_start|im_end|system|assistant|endoftext)\s*\|?>/i },
+  { id: "shell_destructive_command", category: "system_command", pattern: /(^|[^a-z])(rm\s+-rf|sudo\s+\S|chmod\s+[0-7]{3}|mkfs\b|dd\s+if=|shutdown\b|reboot\b|:\(\)\s*\{\s*:\|)/i },
+  { id: "remote_code_execution", category: "system_command", pattern: /\b(curl|wget|fetch)\b[\s\S]{0,80}\|\s*(sh|bash|zsh|python\d?)\b/i },
+  { id: "code_eval", category: "system_command", pattern: /\b(eval|exec|execfile|system|popen|child_process|subprocess)\s*\(/i },
+  { id: "command_chaining", category: "system_command", pattern: /(;|&&|\|\||`|\$\()\s*(rm|cat|curl|wget|nc|ncat|bash|sh|powershell|certutil)\b/i },
+  { id: "script_markup_injection", category: "script_injection", pattern: /<\s*script\b|javascript:\s*\S|data:text\/html|on(error|load|click|mouseover)\s*=/i },
+  { id: "sql_injection", category: "sql_injection", pattern: /\b(drop\s+table|truncate\s+table|union\s+select|insert\s+into|delete\s+from)\b|\bor\s+1\s*=\s*1\b|'\s*or\s*'/i },
+]);
+
+const HIGH_RISK_CATEGORIES = new Set(["prompt_injection", "system_command", "script_injection", "sql_injection"]);
+
+function snippetForPattern(text, pattern) {
+  const match = pattern.exec(text);
+  if (!match) return "";
+  const start = Math.max(0, match.index - 12);
+  return String(text.slice(start, match.index + match[0].length + 12)).replace(/\s+/g, " ").trim().slice(0, 120);
+}
+
+export function verifyContextPayload(input = {}, options = {}) {
+  const limits = { ...DEFAULT_PAYLOAD_LIMITS, ...(options.limits || {}) };
+  const violations = [];
+  const texts = [];
+  let fieldCount = 0;
+
+  const visit = (value, depth) => {
+    if (depth > limits.maxDepth) {
+      violations.push({ rule: "max_depth_exceeded", category: "excessive_payload", detail: `nesting depth exceeds ${limits.maxDepth}` });
+      return;
+    }
+    if (typeof value === "string") {
+      texts.push(value);
+      if (value.length > limits.maxFieldLength) {
+        violations.push({ rule: "max_field_length_exceeded", category: "excessive_payload", detail: `field length ${value.length} exceeds ${limits.maxFieldLength}` });
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item) => visit(item, depth + 1));
+      return;
+    }
+    if (value && typeof value === "object") {
+      for (const [key, item] of Object.entries(value)) {
+        fieldCount += 1;
+        texts.push(String(key));
+        visit(item, depth + 1);
+      }
+    }
+  };
+
+  visit(input, 0);
+
+  if (fieldCount > limits.maxFields) {
+    violations.push({ rule: "max_fields_exceeded", category: "excessive_payload", detail: `field count ${fieldCount} exceeds ${limits.maxFields}` });
+  }
+  const combinedLength = texts.reduce((sum, text) => sum + text.length, 0);
+  if (combinedLength > limits.maxTotalTextLength) {
+    violations.push({ rule: "max_total_length_exceeded", category: "excessive_payload", detail: `combined text length ${combinedLength} exceeds ${limits.maxTotalTextLength}` });
+  }
+
+  for (const text of texts) {
+    for (const rule of PAYLOAD_INJECTION_RULES) {
+      if (rule.pattern.test(text)) {
+        violations.push({ rule: rule.id, category: rule.category, detail: snippetForPattern(text, rule.pattern) });
+      }
+    }
+  }
+
+  const categories = unique(violations.map((violation) => violation.category));
+  const safe = violations.length === 0;
+  const riskLevel = safe ? "none" : categories.some((category) => HIGH_RISK_CATEGORIES.has(category)) ? "high" : "elevated";
+
+  return {
+    schema_version: "memact.payload_verification.v0",
+    safe,
+    risk_level: riskLevel,
+    violation_categories: categories,
+    violations,
+    inspected: { field_count: fieldCount, text_length: combinedLength },
+    checked_at: new Date().toISOString(),
+  };
+}
+
+function buildQuarantinedProposal(category, verification) {
+  const now = new Date().toISOString();
+  return {
+    schema_version: "memact.context_proposal.v0",
+    input_kind: "quarantined",
+    category,
+    title: `Quarantined ${category} contribution`,
+    context: { isolated: true, reason: "context_poisoning_suspected" },
+    confidence: 0,
+    quarantined: true,
+    poison_report: verification,
+    status: "rejected",
+    visibility: "private",
+    revoked_at: now,
+    lifecycle_history: [{
+      action: "quarantined",
+      from_status: null,
+      to_status: "rejected",
+      occurred_at: now,
+      reason: `payload_verification_failed:${verification.violation_categories.join(",") || "unknown"}`
+    }],
+    user_action_required: true,
+    source_trail: [],
+    guardrails: [
+      "Suspicious contribution isolated; raw text is not stored or proposed.",
+      "Activity is not identity.",
+      "Do not expose raw private data by default.",
+      "User must explicitly review before any quarantined contribution is reconsidered."
+    ],
+    created_at: now,
+    updated_at: now
+  };
+}
+
+export const CLAIM_CLASSES = Object.freeze({
+  INTENT: "intent",
+  HABIT: "habit",
+  PREFERENCE: "preference",
+  IDENTITY: "identity",
+});
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export const CLAIM_CLASS_SPECS = Object.freeze({
+  [CLAIM_CLASSES.INTENT]: Object.freeze({
+    description: "Short-lived task goal",
+    lifetime: "short",
+    ttl_ms: DAY_MS,
+    min_confidence: 0.3,
+    requires_explicit_statement: false,
+    requires_repeated_evidence: false,
+    decays: true,
+  }),
+  [CLAIM_CLASSES.HABIT]: Object.freeze({
+    description: "Inferred repeated observation",
+    lifetime: "medium",
+    ttl_ms: 30 * DAY_MS,
+    min_confidence: 0.4,
+    min_support: 3,
+    requires_explicit_statement: false,
+    requires_repeated_evidence: true,
+    decays: true,
+  }),
+  [CLAIM_CLASSES.PREFERENCE]: Object.freeze({
+    description: "Explicit user statement",
+    lifetime: "long",
+    ttl_ms: 180 * DAY_MS,
+    min_confidence: 0.5,
+    requires_explicit_statement: true,
+    requires_repeated_evidence: false,
+    decays: false,
+  }),
+  [CLAIM_CLASSES.IDENTITY]: Object.freeze({
+    description: "Stable core detail",
+    lifetime: "persistent",
+    ttl_ms: null,
+    min_confidence: 0.6,
+    requires_explicit_statement: true,
+    requires_repeated_evidence: false,
+    decays: false,
+  }),
+});
+
+const IDENTITY_MARKERS = /\b(my name is|i am a|i'?m a|i live in|i was born|my (date of birth|birthday|hometown|nationality|occupation) is)\b/i;
+const IDENTITY_KEYS = /\b(full_?name|first_?name|last_?name|date_of_birth|birth_?day|hometown|home_?town|nationality|gender|occupation|address)\b/i;
+const PREFERENCE_MARKERS = /\b(i (prefer|like|love|enjoy|hate|dislike|don'?t like|always|never|usually)|my favou?rite|i'?d rather)\b/i;
+const INTENT_MARKERS = /\b(want to|plan to|going to|trying to|intend to|my goal|todo|to-do|deadline|due|reminder|book a|sign up for)\b/i;
+
+export function normalizeClaimClass(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return Object.values(CLAIM_CLASSES).includes(normalized) ? normalized : null;
+}
+
+export function getClaimClassSpec(claimClass) {
+  return CLAIM_CLASS_SPECS[normalizeClaimClass(claimClass) || CLAIM_CLASSES.INTENT];
+}
+
+function claimSubmissionText(submission = {}) {
+  const parts = [
+    submission.title,
+    submission.summary,
+    submission.event_type,
+    JSON.stringify(submission.context || {}),
+    JSON.stringify(submission.value || {}),
+    JSON.stringify(submission.payload || submission.evidence || {}),
+  ];
+  return parts.filter(Boolean).join(" ");
+}
+
+export function inferClaimClass(submission = {}) {
+  const declared = normalizeClaimClass(submission.claim_class);
+  if (declared) return declared;
+
+  const text = claimSubmissionText(submission);
+  if (IDENTITY_MARKERS.test(text) || IDENTITY_KEYS.test(text)) return CLAIM_CLASSES.IDENTITY;
+
+  const explicit = submission.explicit === true || submission.kind === "explicit_statement";
+  if (explicit || PREFERENCE_MARKERS.test(text)) return CLAIM_CLASSES.PREFERENCE;
+
+  if (INTENT_MARKERS.test(text)) return CLAIM_CLASSES.INTENT;
+
+  return CLAIM_CLASSES.HABIT;
+}
+
+function claimSupportCount(submission = {}) {
+  if (Number.isFinite(Number(submission.support))) return Number(submission.support);
+  if (Array.isArray(submission.source_trail)) return submission.source_trail.length;
+  if (Array.isArray(submission.sources)) return submission.sources.length;
+  if (Array.isArray(submission.observations)) return submission.observations.length;
+  return submission.kind === "raw_signal" ? 1 : 0;
+}
+
+function isExplicitSubmission(submission = {}) {
+  if (submission.explicit === true) return true;
+  if (submission.kind === "explicit_statement") return true;
+  const text = claimSubmissionText(submission);
+  if (PREFERENCE_MARKERS.test(text) || IDENTITY_MARKERS.test(text)) return true;
+  const trail = Array.isArray(submission.source_trail) ? submission.source_trail : [];
+  return trail.some((entry) => /user|explicit|stated|statement/i.test(JSON.stringify(entry || {})));
+}
+
+export function validateClaimClass(submission = {}, options = {}) {
+  const claimClass = normalizeClaimClass(options.claim_class ?? submission.claim_class) || inferClaimClass(submission);
+  const spec = CLAIM_CLASS_SPECS[claimClass];
+  const confidence = Number(options.confidence ?? submission.confidence ?? 0);
+  const support = claimSupportCount(submission);
+  const violations = [];
+
+  if (confidence < spec.min_confidence) {
+    violations.push({ rule: "min_confidence", detail: `confidence ${round(confidence)} below ${spec.min_confidence} required for ${claimClass}` });
+  }
+  if (spec.requires_repeated_evidence && support < (spec.min_support ?? 2)) {
+    violations.push({ rule: "insufficient_support", detail: `${claimClass} needs >= ${spec.min_support ?? 2} observations, found ${support}` });
+  }
+  if (spec.requires_explicit_statement && !isExplicitSubmission(submission)) {
+    violations.push({ rule: "requires_explicit_statement", detail: `${claimClass} must come from an explicit user statement` });
+  }
+
+  return {
+    claim_class: claimClass,
+    valid: violations.length === 0,
+    requires_confirmation: spec.requires_explicit_statement && !isExplicitSubmission(submission),
+    violations,
+  };
 }

@@ -38,3 +38,34 @@ test("resolveSchemaLifecycleState locks travel and dining schemas to emerging st
   // Even with massive support metrics, it must remain emerging!
   assert.equal(state, "emerging");
 });
+
+test("shapeContextProposal automatically drops raw coordinates and financial fields under boundary rules", () => {
+  const signalWithSensitiveData = {
+    raw_signal: {
+      category: "travel",
+      event_type: "location_ping",
+      payload: {
+        destination: "Central Terminal",
+        latitude: 17.3850,
+        longitude: 78.4867,
+        ride_cost: 45.50,
+        account_balance: 1500.00
+      }
+    }
+  };
+
+  const proposal = shapeContextProposal(signalWithSensitiveData);
+
+  // Assert sensitive keys are removed from evidence payload
+  assert.equal(proposal.context.evidence.latitude, undefined);
+  assert.equal(proposal.context.evidence.longitude, undefined);
+  assert.equal(proposal.context.evidence.account_balance, undefined);
+
+  // Assert non-sensitive structural keys are retained
+  assert.equal(proposal.context.evidence.destination, "Central Terminal");
+
+  // Assert metadata tracking arrays record the filtering
+  assert.equal(proposal.drop_reason, "sensitivity_boundary_restriction");
+  assert.ok(proposal.dropped_fields.some(d => d.field === "latitude"));
+  assert.ok(proposal.dropped_fields.some(d => d.field === "account_balance"));
+});
