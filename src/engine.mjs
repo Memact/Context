@@ -334,6 +334,7 @@ export function shapeContextProposal(input = {}, options = {}) {
 
   const sourceTrail = buildContextSourceTrail(submission)
   
+  // Vacation Mode trigger check
   const isVacationModeActive = !!(options.vacationMode || options.session?.vacationMode || options.querySession?.vacationMode);
   const targetTransientCategories = new Set(["travel", "location", "fitness", "food-delivery", "food_delivery", "dining"]);
   const shouldForceTransient = isVacationModeActive && targetTransientCategories.has(category.toLowerCase().trim());
@@ -353,6 +354,7 @@ export function shapeContextProposal(input = {}, options = {}) {
     ? contextFromSignal(submission)
     : sanitizeContextObject(submission.context || submission.value || {})
 
+  // 🔒 Issue #171 Boundary Scrubber Execution Pass
   const droppedFields = [];
   if (context.evidence) {
     context.evidence = enforceIngestionBoundaries(context.evidence, droppedFields);
@@ -427,13 +429,15 @@ export function shapeContextProposals(inputs = [], options = {}) {
 
 function normalizeContextInput(input = {}) {
   const raw = input.raw_signal || input.signal || input.activity_signal
-  if (raw && typeof raw === "object") return { ...raw, kind: "raw_signal", category: raw.category || input.category };
-  return { ...input, kind: input.kind || input.input_kind || "context_proposal" };
+  if (raw && typeof raw === "object") {
+    return { ...raw, kind: "raw_signal", category: raw.category || input.category }
+  }
+  return { ...input, kind: input.kind || input.input_kind || "context_proposal" }
 }
 
 function contextFromSignal(signal = {}) {
-  const eventType = String(signal.event_type || signal.type || "activity").slice(0, 80);
-  const category = String(signal.category || "general").slice(0, 80);
+  const eventType = String(signal.event_type || signal.type || "activity").slice(0, 80)
+  const category = String(signal.category || "general").slice(0, 80)
   const payload = signal.payload || signal.evidence || signal.data || {};
 
   let friendlySummary = `Raw ${eventType} signal needs review before it becomes memory.`;
@@ -454,7 +458,7 @@ function contextFromSignal(signal = {}) {
     signal_type: eventType,
     evidence: sanitizeContextObject(payload),
     review_note: "Activity is not identity. Treat this as weak evidence until the user accepts or edits it."
-  };
+  }
 }
 
 function buildContextSourceTrail(input = {}) {
@@ -506,23 +510,12 @@ function inferSubSchema(records = []) {
   return "general"
 }
 
-function inferProductivitySubSchema(text = "") {
-  if (/kanban|time-blocking|organization/.test(text)) return "organization_style"
-  if (/calendar|meeting/.test(text)) return "calendar_habits"
-  return null
-}
-
-function buildProductivityAttributes(records = []) {
-  const styles = unique(records.map((record) => record.evidence?.organization_style).filter(Boolean))
-  const projectAreas = unique(records.map((record) => record.evidence?.project_area).filter(Boolean))
-  const focusPreferences = unique(records.map((record) => record.evidence?.focus_preference).filter(Boolean))
-  const calendarHabits = unique(records.map((record) => record.evidence?.calendar_habit).filter(Boolean))
-  return { preferred_organization_styles: styles, recurring_project_areas: projectAreas, focus_time_preferences: focusPreferences, calendar_habits: calendarHabits }
-}
-
 function buildReadingAttributes(records = []) {
   const topics = unique(records.map((record) => record.evidence?.article_topic).filter(Boolean))
-  const skippedTopics = unique(records.filter((record) => (record.canonical_themes || []).includes("skipped_topic")).map((record) => record.evidence?.article_topic).filter(Boolean))
+  const skippedTopics = unique(records
+    .filter((record) => (record.canonical_themes || []).includes("skipped_topic"))
+    .map((record) => record.evidence?.article_topic)
+    .filter(Boolean))
   const scrollDepths = records.map((record) => Number(record.evidence?.scroll_depth || 0)).filter((value) => value > 0)
   const finishCount = records.filter((record) => (record.canonical_themes || []).includes("completion")).length
   const longReads = records.filter((record) => (record.canonical_themes || []).includes("long_read")).length
@@ -546,6 +539,7 @@ function buildMusicAttributes(records = []) {
   for (const spec of MUSIC_FIELD_SPECS) {
     attributes[spec.output] = collectEvidenceValues(records, spec.aliases)
   }
+
   const sensitiveFieldsRaw = records.flatMap((record) => {
     const evidence = record.evidence || {}
     return Object.keys(evidence).filter((key) => {
@@ -559,7 +553,12 @@ function buildMusicAttributes(records = []) {
     })
   })
   const sensitiveFields = [...new Set(sensitiveFieldsRaw)]
-  return { ...attributes, sensitive_fields: sensitiveFields, review_status: sensitiveFields.length ? "needs_review" : "safe_to_propose" };
+
+  return {
+    ...attributes,
+    sensitive_fields: sensitiveFields,
+    review_status: sensitiveFields.length ? "needs_review" : "safe_to_propose",
+  }
 }
 
 function collectEvidenceValues(records = [], aliases = []) {
@@ -567,10 +566,16 @@ function collectEvidenceValues(records = [], aliases = []) {
 }
 
 function normalizeEvidenceValue(value) {
-  if (Array.isArray(value)) return value.flatMap((item) => normalizeEvidenceValue(item));
-  if (value === null || value === undefined || value === "") return [];
-  if (typeof value === "string") return [value.trim()];
-  return [String(value)];
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => normalizeEvidenceValue(item))
+  }
+  if (value === null || value === undefined || value === "") {
+    return []
+  }
+  if (typeof value === "string") {
+    return [value.trim()]
+  }
+  return [String(value)]
 }
 
 export function formatSchemaReport(result) {
@@ -584,32 +589,46 @@ export function formatSchemaReport(result) {
     "Virtual Context Patterns",
   ];
 
-  if (!result.schemas || !result.schemas.length) {
+  if (!result.schemas.length) {
     lines.push("No virtual cognitive schemas met the formation threshold.");
     return lines.join("\n");
   }
+
   result.schemas.forEach((schema, index) => {
-    const badge = schema.temporary ? " [TEMPORARY]" : "";
-    lines.push(`${index + 1}. ${schema.label}${badge}`);
-    lines.push(`    state=${schema.state} support=${schema.support} weighted=${schema.weighted_support.toFixed(3)} confidence=${schema.confidence.toFixed(3)}`);
-    if (schema.ttl) {
-      lines.push(`    expires=${new Date(schema.ttl).toISOString()}`);
-    }
-    lines.push(`    basis=${schema.formation_basis}`);
-    lines.push(`    frame=${schema.core_interpretation}`);
+    lines.push(`${index + 1}. ${schema.label}`);
+    lines.push(`   state=${schema.state} support=${schema.support} weighted=${schema.weighted_support.toFixed(3)} confidence=${schema.confidence.toFixed(3)}`);
+    lines.push(`   basis=${schema.formation_basis}`);
+    lines.push(`   frame=${schema.core_interpretation}`);
   });
+
   return lines.join("\n");
 }
 
 function induceSchemas(records, thresholds) {
   const anchorCounts = countAnchors(records);
-  const anchors = [...anchorCounts.entries()].filter(([, count]) => count >= thresholds.minSupport).map(([anchor]) => anchor).filter((anchor) => !LOW_SIGNAL_TERMS.has(anchor));
-  const candidates = anchors.map((anchor) => buildCandidate(anchor, records, thresholds)).filter(Boolean).sort((a, b) => b.confidence - a.confidence || b.weighted_support - a.weighted_support || b.support - a.support || a.id.localeCompare(b.id));
+  const anchors = [...anchorCounts.entries()]
+    .filter(([, count]) => count >= thresholds.minSupport)
+    .map(([anchor]) => anchor)
+    .filter((anchor) => !LOW_SIGNAL_TERMS.has(anchor));
+
+  const candidates = anchors
+    .map((anchor) => buildCandidate(anchor, records, thresholds))
+    .filter(Boolean)
+    .sort((a, b) =>
+      b.confidence - a.confidence ||
+      b.weighted_support - a.weighted_support ||
+      b.support - a.support ||
+      a.id.localeCompare(b.id)
+    );
+
   return dedupeSchemas(candidates).slice(0, thresholds.maxSchemas);
 }
 
 function buildCandidate(anchor, records, thresholds) {
-  const scoredRecords = records.map((record) => scoreRecordForAnchor(record, anchor)).filter((record) => record.schema_record_score > 0).sort((a, b) => b.schema_record_score - a.schema_record_score || a.source_label.localeCompare(b.source_label));
+  const scoredRecords = records
+    .map((record) => scoreRecordForAnchor(record, anchor))
+    .filter((record) => record.schema_record_score > 0)
+    .sort((a, b) => b.schema_record_score - a.schema_record_score || a.source_label.localeCompare(b.source_label));
   const support = scoredRecords.length;
   const weightedSupport = round(scoredRecords.reduce((sum, record) => sum + record.schema_record_score, 0), 4);
   const activeDayCount = countActiveDays(scoredRecords);
@@ -620,7 +639,14 @@ function buildCandidate(anchor, records, thresholds) {
   const matchedThemes = topTerms(scoredRecords.flatMap((record) => record.themes), 8);
   const cohesion = round(averageCohesion(scoredRecords));
 
-  if (support < thresholds.minSupport || weightedSupport < thresholds.minWeightedSupport || cohesion < thresholds.minCohesion || !hasSchemaSubstance({ anchor, repeatedConcepts, cognitiveDimensions, distinctSourceCount })) return null;
+  if (
+    support < thresholds.minSupport ||
+    weightedSupport < thresholds.minWeightedSupport ||
+    cohesion < thresholds.minCohesion ||
+    !hasSchemaSubstance({ anchor, repeatedConcepts, cognitiveDimensions, distinctSourceCount })
+  ) {
+    return null;
+  }
 
   const evidenceRecords = scoredRecords.slice(0, 10).map((record) => ({ id: record.id, packet_id: record.packet_id, source_label: record.source_label, concepts: record.concepts, themes: record.themes, cognitive_dimensions: record.cognitive_dimensions, schema_record_score: record.schema_record_score, meaningful_score: record.meaningful_score, meaning_reasons: record.meaning_reasons, sources: record.sources }));
   const repetition = Math.min(1, support / Math.max(thresholds.minSupport, 8));
@@ -681,21 +707,6 @@ function profileRecord(record) {
   return { id: record.id, packet_id: record.packet_id ?? null, source_label: normalize(record.source_label || record.evidence?.title || "meaning packet"), started_at: record.started_at, ended_at: record.ended_at, concepts, themes, cognitive_dimensions: cognitiveDimensions, meaningful_score: Number(record.meaningful_score ?? 0.58), meaning_reasons: record.meaning_reasons ?? [], sources: record.sources ?? [] };
 }
 
-function inferRecordCategory(record = {}) {
-  const text = `${record.category || ""} ${record.source_label || ""} ${record.evidence?.title || ""} ${(record.canonical_themes || []).join(" ")}`.toLowerCase()
-  if (/reading|article|summary|scroll|finish/.test(text)) return "reading"
-  if (/\b(shopping|shop|commerce|product|products|discount|price)\b/.test(text)) return "shopping"
-  if (/learn|study|tutorial|course/.test(text)) return "learning"
-  if (/research|paper|source|documentation|api/.test(text)) return "research"
-  if (/focus|attention|load/.test(text)) return "attention"
-  if (/video|audio|media/.test(text)) return "media"
-  if (/code|developer|debug|github/.test(text)) return "developer_work"
-  if (/assistant|chat/.test(text)) return "ai_assistant_usage"
-  if (/\b(productivity|task|tasks|work|doc|docs)\b/.test(text)) return "productivity"
-  if (/fitness|workout|nutrition|diet|exercise/.test(text)) return "fitness"
-  return "general"
-}
-
 function scoreRecordForAnchor(record, anchor) {
   const conceptSet = new Set(record.concepts);
   if (!conceptSet.has(anchor)) return { ...record, schema_record_score: 0 };
@@ -714,8 +725,8 @@ function hasSchemaSubstance({ anchor, repeatedConcepts, cognitiveDimensions, dis
 
 function buildDynamicLabel(anchor, concepts, cognitiveDimensions) {
   const labelConcepts = unique([anchor, ...concepts.filter((concept) => concept !== anchor)]).slice(0, 2);
-  const dimension = cognitiveDimensions[0] ? titleCase(cognitiveDimensions[0]) + " frame" : "Repeated frame";
-  return labelConcepts.map(titleCase).join(" / ") + " " + dimension;
+  const dimension = cognitiveDimensions[0] ? `${titleCase(cognitiveDimensions[0])} frame` : "Repeated frame";
+  return `${labelConcepts.map(titleCase).join(" / ")} ${dimension}`;
 }
 
 function buildCoreInterpretation(concepts, dimensions) {
@@ -727,7 +738,7 @@ function buildCoreInterpretation(concepts, dimensions) {
 function buildActionTendency(concepts, dimensions) {
   if (dimensions.includes("action")) return "move toward activity around " + concepts.slice(0, 3).join(", ");
   if (dimensions.includes("evaluation")) return "judge or compare activity around " + concepts.slice(0, 3).join(", ");
-  if (dimensions.includes("identity")) return "move toward connecting " + concepts.slice(0, 3).join(", ") + " to self-direction";
+  if (dimensions.includes("identity")) return "connect " + concepts.slice(0, 3).join(", ") + " to self-direction";
   return "revisit and connect " + concepts.slice(0, 3).join(", ");
 }
 
@@ -877,20 +888,6 @@ function hasPhrase(text, phrase) {
   return haystack.includes(needle);
 }
 
-function escapeRegExp(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
-function titleCase(value) { return normalize(value).replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()); }
-function slug(value) { return normalize(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "schema"; }
-function round(value) {
-  return Math.round((Number(value || 0) + Number.EPSILON) * 10000) / 10000;
-}
-function normalize(value) {
-  return String(value || "").replace(/\s+/g, " ").trim();
-}
-
-function unique(values) {
-  return [...new Set((Array.isArray(values) ? values : []).map(normalize).filter(Boolean))];
-}
-
 class CrossDomainMappingIndex {
   constructor() { 
     this.parent = new Map();
@@ -926,10 +923,8 @@ class CrossDomainMappingIndex {
 
     if (rootA !== rootB) {
       this.parent.set(rootB, rootA);
-      
       const groupA = this.groupMap.get(rootA);
       const groupB = this.groupMap.get(rootB);
-      
       for (const item of groupB) {
         groupA.add(item);
       }
@@ -940,10 +935,8 @@ class CrossDomainMappingIndex {
   getAliases(path) {
     const p = String(path || "").trim().toLowerCase();
     if (!this.parent.has(p)) return [];
-    
     const root = this._find(p);
     const group = this.groupMap.get(root);
-    
     return Array.from(group).filter(item => item !== p);
   }
 }
@@ -1166,6 +1159,64 @@ export const CLAIM_CLASS_SPECS = Object.freeze({
   }),
 });
 
+const IDENTITY_MARKERS = /\b(my name is|i am a|i'?m a|i live in|i was born|my (date of birth|birthday|hometown|nationality|occupation) is)\b/i;
+const IDENTITY_KEYS = /\b(full_?name|first_?name|last_?name|date_of_birth|birth_?day|hometown|home_?town|nationality|gender|occupation|address)\b/i;
+const PREFERENCE_MARKERS = /\b(i (prefer|like|love|enjoy|hate|dislike|don'?t like|always|never|usually)|my favou?rite|i'?d rather)\b/i;
+const INTENT_MARKERS = /\b(want to|plan to|going to|trying to|intend to|my goal|todo|to-do|deadline|due|reminder|book a|sign up for)\b/i;
+
+export function normalizeClaimClass(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return Object.values(CLAIM_CLASSES).includes(normalized) ? normalized : null;
+}
+
+export function getClaimClassSpec(claimClass) {
+  return CLAIM_CLASS_SPECS[normalizeClaimClass(claimClass) || CLAIM_CLASSES.INTENT];
+}
+
+function claimSubmissionText(submission = {}) {
+  const parts = [
+    submission.title,
+    submission.summary,
+    submission.event_type,
+    JSON.stringify(submission.context || {}),
+    JSON.stringify(submission.value || {}),
+    JSON.stringify(submission.payload || submission.evidence || {}),
+  ];
+  return parts.filter(Boolean).join(" ");
+}
+
+export function inferClaimClass(submission = {}) {
+  const declared = normalizeClaimClass(submission.claim_class);
+  if (declared) return declared;
+
+  const text = claimSubmissionText(submission);
+  if (IDENTITY_MARKERS.test(text) || IDENTITY_KEYS.test(text)) return CLAIM_CLASSES.IDENTITY;
+
+  const explicit = submission.explicit === true || submission.kind === "explicit_statement";
+  if (explicit || PREFERENCE_MARKERS.test(text)) return CLAIM_CLASSES.PREFERENCE;
+
+  if (INTENT_MARKERS.test(text)) return CLAIM_CLASSES.INTENT;
+
+  return CLAIM_CLASSES.HABIT;
+}
+
+function claimSupportCount(submission = {}) {
+  if (Number.isFinite(Number(submission.support))) return Number(submission.support);
+  if (Array.isArray(submission.source_trail)) return submission.source_trail.length;
+  if (Array.isArray(submission.sources)) return submission.sources.length;
+  if (Array.isArray(submission.observations)) return submission.observations.length;
+  return submission.kind === "raw_signal" ? 1 : 0;
+}
+
+function isExplicitSubmission(submission = {}) {
+  if (submission.explicit === true) return true;
+  if (submission.kind === "explicit_statement") return true;
+  const text = claimSubmissionText(submission);
+  if (PREFERENCE_MARKERS.test(text) || IDENTITY_MARKERS.test(text)) return true;
+  const trail = Array.isArray(submission.source_trail) ? submission.source_trail : [];
+  return trail.some((entry) => /user|explicit|stated|statement/i.test(JSON.stringify(entry || {})));
+}
+
 export function validateClaimClass(submission = {}, options = {}) {
   const claimClass = normalizeClaimClass(options.claim_class ?? submission.claim_class) || inferClaimClass(submission);
   const spec = CLAIM_CLASS_SPECS[claimClass];
@@ -1190,3 +1241,4 @@ export function validateClaimClass(submission = {}, options = {}) {
     violations,
   };
 }
+function escapeRegExp(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
