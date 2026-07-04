@@ -289,10 +289,29 @@ export function shapeContextProposal(input = {}, options = {}) {
   const submission = normalizeContextInput(input)
   const category = submission.category || options.category || "general"
   const sourceTrail = buildContextSourceTrail(submission)
-  const confidence = submission.kind === "raw_signal" ? 0.35 : sourceTrail.length ? 0.7 : 0.55
+  
+  // Vacation Mode trigger check
+  const isVacationModeActive = !!(options.vacationMode || options.session?.vacationMode || options.querySession?.vacationMode);
+  const targetTransientCategories = new Set(["travel", "location", "fitness", "food-delivery", "food_delivery", "dining"]);
+  const shouldForceTransient = isVacationModeActive && targetTransientCategories.has(category.toLowerCase().trim());
+
+  let confidence = submission.kind === "raw_signal" ? 0.35 : sourceTrail.length ? 0.7 : 0.55
+  if (shouldForceTransient) {
+    // Cap confidence so it stays a weak observation, matching the transient scope rules
+    confidence = Math.min(confidence, 0.35);
+  }
+
   const context = submission.kind === "raw_signal"
     ? contextFromSignal(submission)
     : sanitizeContextObject(submission.context || submission.value || {})
+
+  // Force the memory scope attribute inside the context object to be transient
+  if (shouldForceTransient) {
+    context.scope = "temporary_intent";
+    context.transient = true;
+    context.retention = "ephemeral";
+    context.review_note = "Vacation Mode Active: Signal locked to a transient scope to preserve local home baselines.";
+  }
 
   return {
     schema_version: "memact.context_proposal.v0",
@@ -308,7 +327,8 @@ export function shapeContextProposal(input = {}, options = {}) {
     guardrails: [
       "Activity is not identity.",
       "User must be able to accept, edit, reject, or delete this before it becomes memory.",
-      "Do not expose raw private data by default."
+      "Do not expose raw private data by default.",
+      ...(shouldForceTransient ? ["Vacation Mode Guardrail: Do not graduate to durable memory profiles."] : [])
     ],
     created_at: new Date().toISOString()
   }
@@ -567,7 +587,7 @@ function buildCandidate(anchor, records, thresholds) {
       (dimensionSpread * 0.16) +
       (conceptSpread * 0.12)
   );
-  const state = resolveSchemaLifecycleState({ support, confidence, activeDayCount, distinctSourceCount }, thresholds);
+  const state = resolveSchemaLifecycleState({ support, confidence, activeDayCount, distinctSourceCount, category: anchor }, thresholds);
   const label = buildDynamicLabel(anchor, concepts, cognitiveDimensions);
   const coreInterpretation = buildCoreInterpretation(concepts, cognitiveDimensions);
   const actionTendency = buildActionTendency(concepts, cognitiveDimensions);
