@@ -59,14 +59,14 @@ test("fitness - one-off workouts stay weak (Activity is not identity)", () => {
   };
   test('should downgrade confidence and catch activity drops breaching thresholds', () => {
     const rawShortWorkout = {
-      source: "NutriPlan Lite",
-      type: "activity",
-      data: {
-        workout_type: "cardio",
-        duration: 15
-      }
-    };
-  const result = healthSchema.normalizeFitnessContext(rawShortWorkout, mockFitnessBaseline);
+    source: "NutriPlan Lite",
+    type: "activity",
+    data: {
+      workout_type: "cardio",
+      duration: 15 
+    }
+  };
+  const result = normalizeFitnessContext(rawShortWorkout, mockFitnessBaseline);
 
     assert.strictEqual(result.observation_type, "anomaly_observation");
     assert.strictEqual(result.confidence, "low");
