@@ -19,6 +19,12 @@ function parseSleepToMinutes(sleepStr) {
   return (hours * 60) + mins;
 }
 
+function parseHydrationToMl(hydrationStr) {
+  if (!hydrationStr) return null;
+  const ml = parseInt(hydrationStr.match(/(\d+)\s*ml/i)?.[1] || 0);
+  return ml || null;
+}
+
 // Strict Privacy Boundary: These must NEVER become durable memory by default
 export const SENSITIVE_FIELDS = new Set([
   "heart_rate",
@@ -29,7 +35,7 @@ export const SENSITIVE_FIELDS = new Set([
   "oxygen_saturation"
 ]);
 
-export function normalizeHealthContext(input) {
+export function normalizeHealthContext(input,baseline = null) {
   if (!input || !input.data) return null;
   const { source, type, data, explicit = false } = input;
 
@@ -59,10 +65,21 @@ export function normalizeHealthContext(input) {
       const floor = baseline.avg_activity_minutes * contextFields.activity_log.variance_threshold_log;
       if (cleanedData.duration_minutes < floor) {
         discrepancyDetected = true;
-        customSuggestion = "This activity session is significantly shorter than your typical logged intensity.";
+        customSuggestion = "This activity session is significantly shorter than your typical logged intensity.Log as anomaly.";
       }
     }
-  }
+  
+  if (cleanedData.hydration_log && baseline.avg_hydration_ml) {
+      const incomingMl = parseHydrationToMl(cleanedData.hydration_log);
+      if (incomingMl) {
+        const variance = Math.abs(incomingMl - baseline.avg_hydration_ml);
+        if (variance > contextFields.hydration_log.variance_threshold_hydration) {
+          discrepancyDetected = true;
+          customSuggestion = "Your logged intake volume varies significantly from your standard hydration baseline. Log as anomaly.";
+        }
+      }
+    }
+ }
 
   // 2. Transient Activity Handling (Activity is not identity)
   if (type === "activity") {
