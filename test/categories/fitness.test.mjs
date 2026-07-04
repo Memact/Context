@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { normalizeFitnessContext } from "../../src/categories/fitness.mjs";
+const mockFitnessBaseline = {
+    avg_activity_duration_minutes: 60, 
+    avg_meal_calories: 700             
+  };
 
 test("fitness - valid explicit preference (NutriPlan Lite onboarding)", () => {
   const rawInput = {
@@ -53,6 +57,21 @@ test("fitness - one-off workouts stay weak (Activity is not identity)", () => {
       heart_rate: 160 // extraneous detail should be dropped
     }
   };
+  test('should downgrade confidence and catch activity drops breaching thresholds', () => {
+    const rawShortWorkout = {
+      source: "NutriPlan Lite",
+      type: "activity",
+      data: {
+        workout_type: "cardio",
+        duration: 15
+      }
+    };
+  const result = healthSchema.normalizeFitnessContext(rawShortWorkout, mockFitnessBaseline);
+
+    assert.strictEqual(result.observation_type, "anomaly_observation");
+    assert.strictEqual(result.confidence, "low");
+    assert.match(result.suggestion, /significantly shorter/);
+  });
 
   const result = normalizeFitnessContext(rawInput);
   assert.equal(result.observation_type, "weak_observation");
