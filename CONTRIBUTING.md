@@ -1,6 +1,6 @@
 # Contributing to Memact/Context
 
-Welcome to the **Memact** open-source community! 👋
+Welcome to the **Memact** open-source community!
 We are part of **SSoC 2026 (Summer of Selecting Open Contributions)** and we are excited to have you here.
 
 
@@ -27,21 +27,21 @@ We are part of **SSoC 2026 (Summer of Selecting Open Contributions)** and we are
 
 ## Understanding the Protocol
 
-Memact is a **user-owned personal context protocol** — a privacy-preserving middleware layer that gives
+Memact is a **user-owned personal context protocol** - a privacy-preserving middleware layer that gives
 users visibility and control over what apps know about them.
 
 The core spine:
 
 ```
-Access → Wiki → Context → Memory → SDK → Apps
+Access -> Wiki -> Context -> Memory -> SDK -> Apps
 ```
 
-- **Access** — Permission gating, isolation profiles, token revocation
-- **Context** — Schema validation, conflict resolution, canonical data shapes
-- **Memory** — Persistent storage, indexing, decay, offline sync
-- **SDK** — Client adapters, CLI tooling, third-party integration helpers
-- **Contracts** — Shared type definitions and schema validators
-- **Notebook** — UI layouts and front-end data contracts
+- **Access** - Permission gating, isolation profiles, token revocation
+- **Context** - Schema validation, conflict resolution, canonical data shapes
+- **Memory** - Persistent storage, indexing, decay, offline sync
+- **SDK** - Client adapters, CLI tooling, third-party integration helpers
+- **Contracts** - Shared type definitions and schema validators
+- **Notebook** - UI layouts and front-end data contracts
 
 All issues use **generic capability names** (e.g. _Ride Booking_, _Media Playback_, _Developer Activity_)
 rather than brand names. Specific apps are reference implementations only.
@@ -72,7 +72,7 @@ Comment any of the following on an issue to request assignment:
 - `Assign me`
 - `I'd like to work on this`
 
-> Our bot processes assignment requests **chronologically** — the first person to request gets priority.
+> Our bot processes assignment requests **chronologically** - the first person to request gets priority.
 > Do not spam multiple issues at once beyond your limit (see below).
 
 To **unassign** yourself, comment:
@@ -96,7 +96,7 @@ counted on the SSoC26 leaderboard.
 4. Open a PR with a title like:
 
    ```
-   [Dummy PR] <Repo>/<Your PR title> — <your-username>
+   [Dummy PR] <Repo>/<Your PR title> - <your-username>
    ```
 
 5. In the PR description, reference your actual PR:
@@ -128,13 +128,13 @@ counted on the SSoC26 leaderboard.
 All PRs are automatically reviewed by our bot for the following. Violations will trigger a
 `Quality: Needs Polish` label and a comment requesting fixes before merge.
 
-### ✅ Required
+### Required
 - [ ] Code follows the existing patterns and architecture of the repository
 - [ ] All functions/modules have proper docstrings or comments
 - [ ] Tests are written for all new functionality
 - [ ] No breaking changes to existing interfaces without prior discussion
 
-### ❌ Prohibited
+### Prohibited
 - [ ] `console.log`, `debugger`, `print` statements left in production code
 - [ ] Hardcoded secrets, API keys, passwords, or tokens
 - [ ] Unresolved `TODO`, `FIXME`, or `XXX` markers
@@ -175,8 +175,8 @@ All issues also carry the `SSoC26` label for leaderboard tracking.
 
 ## Need Help?
 
-- 💬 Ask questions directly on the issue thread
-- 📖 Read the project context: [`.agents/rules/memact-project-context.md`](/.agents/rules/memact-project-context.md)
-- 🌐 Visit the [SSoC26 Leaderboard](https://ssoc.devfolio.co/) to track your points
+- Ask questions directly on the issue thread
+- Read the project context: [`.agents/rules/memact-project-context.md`](/.agents/rules/memact-project-context.md)
+- Visit the [SSoC26 Leaderboard](https://ssoc.devfolio.co/) to track your points
 
-We appreciate every contribution — no matter how small. Happy coding! 🚀
+We appreciate every contribution - no matter how small. Happy coding!
