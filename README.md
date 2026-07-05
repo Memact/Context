@@ -13,7 +13,7 @@ Context is a schema registry. It defines:
 ## Development
 
 To install and run tests:
-```powershell
+```sh
 npm install
 npm test
 ```
