@@ -718,9 +718,6 @@ export function shapeContextProposal(input = {}, options = {}) {
     ? contextFromSignal(submission)
     : sanitizeContextObject(submission.context || submission.value || {})
 
-  const confidence = submission.kind === "raw_signal" ? 0.35 : sourceTrail.length ? 0.7 : 0.55
-  const context = submission.kind === "raw_signal" ? contextFromSignal(submission) : sanitizeContextObject(submission.context || submission.value || {})
-
   // Run any registered schema overlay for this category.
   const overlayResult = applyOverlayValidation(category, context)
 
@@ -955,12 +952,11 @@ export function formatSchemaReport(result) {
     "Virtual Context Patterns",
   ];
 
-
   if (!result.schemas || !result.schemas.length) {
-  if (!result.schemas.length) {
     lines.push("No virtual cognitive schemas met the formation threshold.");
     return lines.join("\n");
   }
+  
   result.schemas.forEach((schema, index) => {
     // Add a visual [TEMPORARY] badge if the schema configuration reflects a temporary state
     const badge = schema.temporary ? " [TEMPORARY]" : "";
@@ -969,11 +965,10 @@ export function formatSchemaReport(result) {
     if (schema.ttl) {
       lines.push(`   expires=${new Date(schema.ttl).toISOString()}`);
     }
-    lines.push(`${index + 1}. ${schema.label}`);
-    lines.push("   state=" + schema.state + " support=" + schema.support + " weighted=" + schema.weighted_support.toFixed(3) + " confidence=" + schema.confidence.toFixed(3));
     lines.push(`   basis=${schema.formation_basis}`);
     lines.push(`   frame=${schema.core_interpretation}`);
   });
+  
   return lines.join("\n");
 }
 

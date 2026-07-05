@@ -873,7 +873,6 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
 
   const taskLower = String(taskText || "").toLowerCase();
   const taskTokens = tokens(taskText);
-  const taskLower = String(taskText || "").toLowerCase();
 
   
   const inferredCategories = new Set(categoryHints);
