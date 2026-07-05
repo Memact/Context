@@ -687,6 +687,96 @@ export function validateClaimClass(submission = {}, options = {}) {
   }
 }
 
+export function shapeContextProposal(input = {}, options = {}) {
+  const submission = normalizeContextInput(input)
+  const category = submission.category || options.category || "general"
+
+  // Reject/isolate poisoned contributions before they are shaped into memory.
+  const verification = verifyContextPayload(submission, options)
+  if (!verification.safe) {
+    return buildQuarantinedProposal(category, verification)
+  }
+
+  const sourceTrail = buildContextSourceTrail(submission)
+
+  
+  // 1. Determine temporary flag and optional custom ttl from submission or options
+  const isTemporary = !!(submission.temporary ?? options.temporary ?? false);
+  const ttl = submission.ttl ?? options.ttl ?? null; // e.g., timestamp or millisecond offset
+
+  // 2. Adjust default baseline confidence score if temporary
+  let confidence = submission.kind === "raw_signal" ? 0.35 : sourceTrail.length ? 0.7 : 0.55
+  if (isTemporary) {
+    confidence = Math.max(0.1, confidence - 0.2); // Lower confidence score for temporary items
+  }
+
+  const context = submission.kind === "raw_signal"
+    ? contextFromSignal(submission)
+    : sanitizeContextObject(submission.context || submission.value || {})
+
+  // Run any registered schema overlay for this category.
+  const overlayResult = applyOverlayValidation(category, context)
+
+  const resolvedConfidence = round(Number(submission.confidence ?? confidence))
+  const claimClass = normalizeClaimClass(options.claim_class ?? submission.claim_class) || inferClaimClass(submission)
+  const classSpec = CLAIM_CLASS_SPECS[claimClass]
+  const classValidation = validateClaimClass(submission, { claim_class: claimClass, confidence: resolvedConfidence })
+
+
+  return {
+    schema_version: "memact.context_proposal.v0",
+    input_kind: submission.kind,
+    category,
+    title: String(submission.title || context.title || `Possible ${category} context`).trim().slice(0, 160),
+    context,
+    confidence: resolvedConfidence,
+
+    // Payload passed verification; record the clean verdict for auditability.
+    poison_report: verification,
+
+    // Claim class: distinct validation + lifetime per context class.
+    claim_class: claimClass,
+    claim_class_profile: {
+      description: classSpec.description,
+      lifetime: classSpec.lifetime,
+      ttl_ms: classSpec.ttl_ms,
+      decays: classSpec.decays,
+    },
+    class_validation: classValidation,
+
+    // NEW: Robust Claim Lifecycle Base State
+    status: overlayResult.valid ? "pending" : "overlay_invalid",
+    visibility: "private",
+    revoked_at: null,
+    lifecycle_history: [{
+      action: "created",
+      from_status: null,
+      to_status: "pending",
+      occurred_at: new Date().toISOString(),
+      reason: "system_generated"
+    }],
+
+    user_action_required: true,
+    source_trail: sourceTrail,
+
+
+    // 3. New Schema Fields Added Here
+    temporary: isTemporary,
+    ttl: ttl,
+
+    evidence_trace: traceEvidenceLineage(sourceTrail),
+    guardrails: [
+      "Activity is not identity.",
+      "User must be able to accept, edit, reject, or delete this before it becomes memory.",
+      "Do not expose raw private data by default.",
+      "Every user decision is reversible. Hidden or rejected claims retain local privacy state."
+    ],
+    ...(overlayResult.errors.length > 0 && { overlay_errors: overlayResult.errors }),
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }
+}
+
 export function shapeContextProposals(inputs = [], options = {}) {
   return (Array.isArray(inputs) ? inputs : [inputs]).map((input) => shapeContextProposal(input, options))
 }
@@ -861,6 +951,7 @@ export function formatSchemaReport(result) {
     lines.push("No virtual cognitive schemas met the formation threshold.");
     return lines.join("\n");
   }
+  
   result.schemas.forEach((schema, index) => {
     const badge = schema.temporary ? " [TEMPORARY]" : "";
     lines.push(`${index + 1}. ${schema.label}${badge}`);
@@ -868,9 +959,10 @@ export function formatSchemaReport(result) {
     if (schema.ttl) {
       lines.push(`    expires=${new Date(schema.ttl).toISOString()}`);
     }
-    lines.push(`    basis=${schema.formation_basis}`);
-    lines.push(`    frame=${schema.core_interpretation}`);
+    lines.push(`   basis=${schema.formation_basis}`);
+    lines.push(`   frame=${schema.core_interpretation}`);
   });
+  
   return lines.join("\n");
 }
 
