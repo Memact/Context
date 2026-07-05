@@ -13,22 +13,8 @@
  * - preferred workout type
  */
 
-// Sensitive or careful fields clearly marked
+
 export const category = "fitness";
-export const contextFields = {
-  activity_log: { 
-    description: "General fitness or movement logs (e.g., walked, cycled)", 
-    variance_threshold_duration_pct: 0.40 
-  },
-  meal_log: { 
-    description: "Food and calorie logging inputs", 
-    variance_threshold_calories: 600 
-  },
-  goal: { description: "Durable fitness goals" },
-  dietary_preference: { description: "Durable dietary paths" },
-  activity_level: { description: "User standard moving profile baseline" },
-  preferred_workout_type: { description: "User baseline routine style" }
-};
 
 // 1. Declare Value Variance Thresholds in the schema metadata
 export const contextFields = {
@@ -45,6 +31,8 @@ export const contextFields = {
   activity_level: { description: "User standard moving profile baseline" },
   preferred_workout_type: { description: "User baseline routine style" }
 };
+
+// Sensitive or careful fields clearly marked
 export const SENSITIVE_FIELDS = new Set([
   "allergies",
   "health_conditions",
