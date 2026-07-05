@@ -2,6 +2,7 @@ import { resolveSchemaLifecycleState, schemaLifecycleLabel } from "./lifecycle.m
 export { buildMissingContextFields, contextGoalTemplates, groupContextEntry, suggestContextGoal } from "./context-goals.mjs";
 export { LocalContextMatcher, SemanticContextMatcher, createContextMatcher, matchContextFields, rankContextNodes, CrossCategoryRelevanceRanker, CollisionTree, resolveOverwriteCollisions } from "./context-matcher.mjs";
 export { compileSchemaOverlay } from "./overlay-compiler.mjs";
+
 // ---------------------------------------------------------------------------
 // Schema Overlay Compiler
 // ---------------------------------------------------------------------------
@@ -20,17 +21,6 @@ const ALLOWED_OVERLAY_TYPES = new Set(["string", "number", "boolean", "array", "
 
 /**
  * Compile an overlay definition into a reusable validation hook.
- *
- * Supported JSON Schema subset per property:
- *   - type: "string" | "number" | "boolean" | "array" | "object"
- *   - required: boolean  (shorthand: true = field must be present & non-null)
- *   - description: string (informational only, not validated)
- *   - items.type: type check for every element of an array field
- *
- * Returns a function: (context) => { valid: boolean, errors: string[] }
- *
- * @param {Record<string, { type: string, required?: boolean, description?: string, items?: { type: string } }>} overlayDefinition
- * @returns {(context: object) => { valid: boolean, errors: string[] }}
  */
 export function compileOverlay(overlayDefinition) {
   if (!overlayDefinition || typeof overlayDefinition !== "object" || Array.isArray(overlayDefinition)) {
@@ -39,7 +29,6 @@ export function compileOverlay(overlayDefinition) {
 
   const fields = Object.entries(overlayDefinition);
 
-  // Helper to validate specifications recursively at compile time.
   const checkSpec = (fieldName, spec) => {
     if (!spec || typeof spec !== "object" || Array.isArray(spec)) {
       throw new TypeError(`compileOverlay: spec for "${fieldName}" must be a plain object.`);
@@ -70,12 +59,10 @@ export function compileOverlay(overlayDefinition) {
     }
   };
 
-  // Validate the definition itself at compile time so bad overlays fail early.
   for (const [fieldName, spec] of fields) {
     checkSpec(fieldName, spec);
   }
 
-  // Return the compiled validation hook (closure over the parsed spec).
   return function validateOverlay(context) {
     const errors = [];
     const ctx = (context && typeof context === "object" && !Array.isArray(context)) ? context : {};
@@ -83,16 +70,13 @@ export function compileOverlay(overlayDefinition) {
     const validateField = (val, fieldSpec, fieldPath) => {
       const isPresent = val !== undefined && val !== null;
 
-      // Required check
       if (fieldSpec.required && !isPresent) {
         errors.push(`overlay: required field "${fieldPath}" is missing.`);
         return;
       }
 
-      // If the field is absent and not required, skip further checks.
       if (!isPresent) return;
 
-      // Type check
       if (fieldSpec.type) {
         const actualType = Array.isArray(val) ? "array" : typeof val;
         if (actualType !== fieldSpec.type) {
@@ -101,14 +85,12 @@ export function compileOverlay(overlayDefinition) {
         }
       }
 
-      // Array items check (recursive)
       if (fieldSpec.type === "array" && fieldSpec.items) {
         val.forEach((item, index) => {
           validateField(item, fieldSpec.items, `${fieldPath}[${index}]`);
         });
       }
 
-      // Object properties check (recursive)
       if (fieldSpec.type === "object" && fieldSpec.properties) {
         const obj = (val && typeof val === "object" && !Array.isArray(val)) ? val : {};
         for (const [subKey, subSpec] of Object.entries(fieldSpec.properties)) {
@@ -125,14 +107,6 @@ export function compileOverlay(overlayDefinition) {
   };
 }
 
-/**
- * A validation decorator for category normalizer functions.
- * Enforces strict typing on nested elements during signal processing.
- *
- * @param {Function} normalizer - The original normalizer function (e.g., normalizeFitnessContext).
- * @param {object} schemaSpec - The schema specification mapping field paths/names to types.
- * @returns {Function} A decorated normalizer function.
- */
 export function withStrictValidation(normalizer, schemaSpec) {
   if (typeof normalizer !== "function") {
     throw new TypeError("withStrictValidation: normalizer must be a function.");
@@ -144,19 +118,7 @@ export function withStrictValidation(normalizer, schemaSpec) {
     if (!result) return result;
 
     const validationContext = { ...result };
-    const standardKeys = [
-      "category",
-      "source",
-      "observation_type",
-      "confidence",
-      "is_identity_claim",
-      "suggestion",
-      "needs_review",
-      "validation",
-      "dropped_fields",
-      "drop_reason",
-      "pending_approval_queue"
-    ];
+    const standardKeys = ["category", "source", "observation_type", "confidence", "is_identity_claim", "suggestion", "needs_review", "validation", "dropped_fields", "drop_reason", "pending_approval_queue"];
     for (const key of standardKeys) {
       delete validationContext[key];
     }
@@ -177,11 +139,7 @@ export function withStrictValidation(normalizer, schemaSpec) {
       const issues = errors.map((err) => {
         const fieldMatch = err.match(/"([^"]+)"/);
         const field = fieldMatch ? fieldMatch[1] : "unknown";
-        return {
-          field,
-          reason: "invalid_type",
-          detail: err,
-        };
+        return { field, reason: "invalid_type", detail: err };
       });
 
       result.validation = {
@@ -198,53 +156,24 @@ export function withStrictValidation(normalizer, schemaSpec) {
   };
 }
 
-/**
- * Register a schema overlay for a category.
- *
- * @param {string} category  - The category name to extend (e.g. "food-delivery").
- * @param {object} overlayDefinition - A map of field name → JSON-Schema-lite spec.
- *   Example:
- *   ```js
- *   registerSchemaOverlay("food-delivery", {
- *     beverage_likes: { type: "array", items: { type: "string" }, description: "Preferred beverages" },
- *   });
- *   ```
- * @throws {TypeError} if category is not a non-empty string or overlayDefinition is invalid.
- */
 export function registerSchemaOverlay(category, overlayDefinition) {
   if (!category || typeof category !== "string") {
     throw new TypeError("registerSchemaOverlay: category must be a non-empty string.");
   }
-  // compileOverlay validates the definition and throws on bad input.
   const hook = compileOverlay(overlayDefinition);
   _overlayRegistry.set(category.trim().toLowerCase(), { definition: overlayDefinition, hook });
 }
 
-/**
- * Remove all registered overlays. Primarily intended for test isolation.
- */
 export function clearSchemaOverlays() {
   _overlayRegistry.clear();
 }
 
-/**
- * Return a read-only snapshot of the overlay registry.
- * Keys are category names; values have { definition, hook }.
- */
 export function listSchemaOverlays() {
   return Object.fromEntries(
     [..._overlayRegistry.entries()].map(([cat, entry]) => [cat, { definition: entry.definition }])
   );
 }
 
-/**
- * Run the registered overlay validation for a category against a context object.
- * Returns { valid: true, errors: [] } if no overlay is registered.
- *
- * @param {string} category
- * @param {object} context
- * @returns {{ valid: boolean, errors: string[] }}
- */
 function applyOverlayValidation(category, context) {
   const key = (category || "").trim().toLowerCase();
   const entry = _overlayRegistry.get(key);
@@ -381,10 +310,96 @@ export function createSchemaPacket(group = [], options = {}) {
     created_at: new Date().toISOString()
   }
 }
-/**
- * 🔍 Issue #228: Evidence Lineage Tracer
- * Generates an audit trail string describing the count of observations and unique day spans.
- */
+
+export function shapeContextProposal(input = {}, options = {}) {
+  const submission = normalizeContextInput(input)
+  const category = submission.category || options.category || "general"
+
+  const verification = verifyContextPayload(submission, options)
+  if (!verification.safe) {
+    return buildQuarantinedProposal(category, verification)
+  }
+
+  const sourceTrail = buildContextSourceTrail(submission)
+  
+  // Vacation Mode trigger check
+  const isVacationModeActive = !!(options.vacationMode || options.session?.vacationMode || options.querySession?.vacationMode);
+  const targetTransientCategories = new Set(["travel", "location", "fitness", "food-delivery", "food_delivery", "dining"]);
+  const shouldForceTransient = isVacationModeActive && targetTransientCategories.has(category.toLowerCase().trim());
+
+  const isTemporary = !!(submission.temporary ?? options.temporary ?? false);
+  const ttl = submission.ttl ?? options.ttl ?? null;
+
+  let confidence = submission.kind === "raw_signal" ? 0.35 : sourceTrail.length ? 0.7 : 0.55
+  if (isTemporary) {
+    confidence = Math.max(0.1, confidence - 0.2);
+  }
+  if (shouldForceTransient) {
+    confidence = Math.min(confidence, 0.35);
+  }
+
+  const context = submission.kind === "raw_signal"
+    ? contextFromSignal(submission)
+    : sanitizeContextObject(submission.context || submission.value || {})
+
+  if (shouldForceTransient) {
+    context.scope = "temporary_intent";
+    context.transient = true;
+    context.retention = "ephemeral";
+    context.review_note = "Vacation Mode Active: Signal locked to a transient scope to preserve local home baselines.";
+  }
+
+  const overlayResult = applyOverlayValidation(category, context)
+
+  const resolvedConfidence = round(Number(submission.confidence ?? confidence))
+  const claimClass = normalizeClaimClass(options.claim_class ?? submission.claim_class) || inferClaimClass(submission)
+  const classSpec = CLAIM_CLASS_SPECS[claimClass]
+  const classValidation = validateClaimClass(submission, { claim_class: claimClass, confidence: resolvedConfidence })
+
+  return {
+    schema_version: "memact.context_proposal.v0",
+    input_kind: submission.kind,
+    category,
+    title: String(submission.title || context.title || `Possible ${category} context`).trim().slice(0, 160),
+    context,
+    confidence: resolvedConfidence,
+    poison_report: verification,
+    claim_class: claimClass,
+    claim_class_profile: {
+      description: classSpec.description,
+      lifetime: classSpec.lifetime,
+      ttl_ms: classSpec.ttl_ms,
+      decays: classSpec.decays,
+    },
+    class_validation: classValidation,
+    status: overlayResult.valid ? "pending" : "overlay_invalid",
+    visibility: "private",
+    revoked_at: null,
+    lifecycle_history: [{
+      action: "created",
+      from_status: null,
+      to_status: "pending",
+      occurred_at: new Date().toISOString(),
+      reason: "system_generated"
+    }],
+    user_action_required: true,
+    source_trail: sourceTrail,
+    temporary: isTemporary,
+    ttl: ttl,
+    evidence_trace: traceEvidenceLineage(sourceTrail),
+    guardrails: [
+      "Activity is not identity.",
+      "User must be able to accept, edit, reject, or delete this before it becomes memory.",
+      "Do not expose raw private data by default.",
+      "Every user decision is reversible. Hidden or rejected claims retain local privacy state.",
+      ...(shouldForceTransient ? ["Vacation Mode Guardrail: Do not graduate to durable memory profiles."] : [])
+    ],
+    ...(overlayResult.errors.length > 0 && { overlay_errors: overlayResult.errors }),
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }
+}
+
 export function traceEvidenceLineage(sourceTrail = []) {
   if (!Array.isArray(sourceTrail) || sourceTrail.length === 0) {
     return "Based on systemic configuration defaults.";
@@ -395,11 +410,9 @@ export function traceEvidenceLineage(sourceTrail = []) {
   const sources = new Set();
 
   for (const entry of sourceTrail) {
-    // Collect source app labels if available
     const appLabel = entry.type || entry.source_label || (entry.evidence && entry.evidence.source);
     if (appLabel) sources.add(appLabel);
 
-    // Track unique days using timestamp fields if present
     const timeVal = entry.started_at || entry.ended_at || entry.occurred_at;
     const timestamp = Date.parse(timeVal || "");
     if (Number.isFinite(timestamp)) {
@@ -414,18 +427,14 @@ export function traceEvidenceLineage(sourceTrail = []) {
 
   return `Based on ${totalSessions} ${sourceStr} ${sessionWord} over ${dayCount} ${dayWord}.`;
 }
-// --- Context Poisoning Mitigation ---------------------------------------------
-// Default limits used to isolate oversized / suspicious contributions before
-// they are ever shaped into a memory proposal.
+
 export const DEFAULT_PAYLOAD_LIMITS = Object.freeze({
-  maxFieldLength: 4000, // longest single string value allowed
-  maxTotalTextLength: 20000, // combined length of all text in the payload
-  maxFields: 200, // total number of object keys across the payload
-  maxDepth: 8, // deepest nesting allowed before we stop trusting the shape
+  maxFieldLength: 4000,
+  maxTotalTextLength: 20000,
+  maxFields: 200,
+  maxDepth: 8,
 })
 
-// Signature rules that flag prompt-injection attempts, embedded system
-// commands, script/markup injection and SQL injection inside contributed text.
 const PAYLOAD_INJECTION_RULES = Object.freeze([
   { id: "prompt_instruction_override", category: "prompt_injection", pattern: /\b(ignore|disregard|forget|override)\b[\s\S]{0,40}\b(previous|prior|earlier|above|all|your)\b[\s\S]{0,24}\b(instruction|instructions|prompt|prompts|context|rule|rules|directive)/i },
   { id: "prompt_role_override", category: "prompt_injection", pattern: /\b(you are now|act as|pretend to be|from now on you|roleplay as)\b/i },
@@ -519,7 +528,6 @@ function buildQuarantinedProposal(category, verification) {
     input_kind: "quarantined",
     category,
     title: `Quarantined ${category} contribution`,
-    // The suspicious text is isolated and never echoed back into the proposal.
     context: { isolated: true, reason: "context_poisoning_suspected" },
     confidence: 0,
     quarantined: true,
@@ -547,16 +555,11 @@ function buildQuarantinedProposal(category, verification) {
   }
 }
 
-// --- Claim Classes (Intent, Habit, Preference, Identity) ----------------------
-// Different classes of context carry distinct validation and lifetime rules.
-// A claim_class can be declared explicitly on a submission/schema, or inferred
-// from the evidence. Each class has its own lifetime (TTL), confidence floor,
-// and evidence requirements that the engine enforces.
 export const CLAIM_CLASSES = Object.freeze({
-  INTENT: "intent", // short-lived task goals
-  HABIT: "habit", // inferred repeated observations
-  PREFERENCE: "preference", // explicit user statements
-  IDENTITY: "identity", // stable core details
+  INTENT: "intent",
+  HABIT: "habit",
+  PREFERENCE: "preference",
+  IDENTITY: "identity",
 })
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -565,7 +568,7 @@ export const CLAIM_CLASS_SPECS = Object.freeze({
   [CLAIM_CLASSES.INTENT]: Object.freeze({
     description: "Short-lived task goal",
     lifetime: "short",
-    ttl_ms: DAY_MS, // expires quickly; intents are transient
+    ttl_ms: DAY_MS,
     min_confidence: 0.3,
     requires_explicit_statement: false,
     requires_repeated_evidence: false,
@@ -576,7 +579,7 @@ export const CLAIM_CLASS_SPECS = Object.freeze({
     lifetime: "medium",
     ttl_ms: 30 * DAY_MS,
     min_confidence: 0.4,
-    min_support: 3, // habits must be backed by repeated evidence
+    min_support: 3,
     requires_explicit_statement: false,
     requires_repeated_evidence: true,
     decays: true,
@@ -586,16 +589,16 @@ export const CLAIM_CLASS_SPECS = Object.freeze({
     lifetime: "long",
     ttl_ms: 180 * DAY_MS,
     min_confidence: 0.5,
-    requires_explicit_statement: true, // preferences come from the user directly
+    requires_explicit_statement: true,
     requires_repeated_evidence: false,
     decays: false,
   }),
   [CLAIM_CLASSES.IDENTITY]: Object.freeze({
     description: "Stable core detail",
     lifetime: "persistent",
-    ttl_ms: null, // identity claims do not auto-expire
+    ttl_ms: null,
     min_confidence: 0.6,
-    requires_explicit_statement: true, // identity must be user-confirmed
+    requires_explicit_statement: true,
     requires_repeated_evidence: false,
     decays: false,
   }),
@@ -639,7 +642,6 @@ export function inferClaimClass(submission = {}) {
 
   if (INTENT_MARKERS.test(text)) return CLAIM_CLASSES.INTENT
 
-  // Inferred (non-explicit) observations default to habit candidates.
   return CLAIM_CLASSES.HABIT
 }
 
@@ -654,18 +656,12 @@ function claimSupportCount(submission = {}) {
 function isExplicitSubmission(submission = {}) {
   if (submission.explicit === true) return true
   if (submission.kind === "explicit_statement") return true
-  // First-person statements ("I prefer…", "my name is…") are explicit by nature.
   const text = claimSubmissionText(submission)
   if (PREFERENCE_MARKERS.test(text) || IDENTITY_MARKERS.test(text)) return true
   const trail = Array.isArray(submission.source_trail) ? submission.source_trail : []
   return trail.some((entry) => /user|explicit|stated|statement/i.test(JSON.stringify(entry || {})))
 }
 
-/**
- * Enforce the validation rules attached to a claim class.
- * Returns a verdict rather than throwing so the proposal can still be surfaced
- * to the user for review when it does not yet meet the bar.
- */
 export function validateClaimClass(submission = {}, options = {}) {
   const claimClass = normalizeClaimClass(options.claim_class ?? submission.claim_class) || inferClaimClass(submission)
   const spec = CLAIM_CLASS_SPECS[claimClass]
@@ -717,9 +713,6 @@ export function shapeContextProposal(input = {}, options = {}) {
   const context = submission.kind === "raw_signal"
     ? contextFromSignal(submission)
     : sanitizeContextObject(submission.context || submission.value || {})
-
-  const confidence = submission.kind === "raw_signal" ? 0.35 : sourceTrail.length ? 0.7 : 0.55
-  const context = submission.kind === "raw_signal" ? contextFromSignal(submission) : sanitizeContextObject(submission.context || submission.value || {})
 
   // Run any registered schema overlay for this category.
   const overlayResult = applyOverlayValidation(category, context)
@@ -799,7 +792,6 @@ function contextFromSignal(signal = {}) {
   const category = String(signal.category || "general").slice(0, 80);
   const payload = signal.payload || signal.evidence || signal.data || {};
 
-  // 🧠 Issue #232: Human-Friendly Inferred Preference Explanations
   let friendlySummary = `Raw ${eventType} signal needs review before it becomes memory.`;
 
   if (category === "fitness" || category === "health") {
@@ -955,25 +947,22 @@ export function formatSchemaReport(result) {
     "Virtual Context Patterns",
   ];
 
-
   if (!result.schemas || !result.schemas.length) {
-  if (!result.schemas.length) {
     lines.push("No virtual cognitive schemas met the formation threshold.");
     return lines.join("\n");
   }
+  
   result.schemas.forEach((schema, index) => {
-    // Add a visual [TEMPORARY] badge if the schema configuration reflects a temporary state
     const badge = schema.temporary ? " [TEMPORARY]" : "";
     lines.push(`${index + 1}. ${schema.label}${badge}`);
-    lines.push(`   state=${schema.state} support=${schema.support} weighted=${schema.weighted_support.toFixed(3)} confidence=${schema.confidence.toFixed(3)}`);
+    lines.push(`    state=${schema.state} support=${schema.support} weighted=${schema.weighted_support.toFixed(3)} confidence=${schema.confidence.toFixed(3)}`);
     if (schema.ttl) {
-      lines.push(`   expires=${new Date(schema.ttl).toISOString()}`);
+      lines.push(`    expires=${new Date(schema.ttl).toISOString()}`);
     }
-    lines.push(`${index + 1}. ${schema.label}`);
-    lines.push("   state=" + schema.state + " support=" + schema.support + " weighted=" + schema.weighted_support.toFixed(3) + " confidence=" + schema.confidence.toFixed(3));
     lines.push(`   basis=${schema.formation_basis}`);
     lines.push(`   frame=${schema.core_interpretation}`);
   });
+  
   return lines.join("\n");
 }
 
@@ -1004,8 +993,15 @@ function buildCandidate(anchor, records, thresholds) {
   const timeSpread = Math.min(1, activeDayCount / Math.max(2, Math.min(support, 4)));
   const dimensionSpread = Math.min(1, cognitiveDimensions.length / 3);
   const conceptSpread = Math.min(1, repeatedConcepts.length / 5);
-  const confidence = round((repetition * 0.24) + (sourceSpread * 0.18) + (timeSpread * 0.12) + (cohesion * 0.18) + (dimensionSpread * 0.16) + (conceptSpread * 0.12));
-  const state = resolveSchemaLifecycleState({ support, confidence, activeDayCount, distinctSourceCount }, thresholds);
+  const confidence = round(
+    (repetition * 0.24) +
+    (sourceSpread * 0.18) +
+    (timeSpread * 0.12) +
+    (cohesion * 0.18) +
+    (dimensionSpread * 0.16) +
+    (conceptSpread * 0.12)
+  );
+  const state = resolveSchemaLifecycleState({ support, confidence, activeDayCount, distinctSourceCount, category: anchor }, thresholds);
   const label = buildDynamicLabel(anchor, concepts, cognitiveDimensions);
   const coreInterpretation = buildCoreInterpretation(concepts, cognitiveDimensions);
   const actionTendency = buildActionTendency(concepts, cognitiveDimensions);
@@ -1257,7 +1253,7 @@ function hasPhrase(text, phrase) {
   return haystack.includes(needle);
 }
 
-function escapeRegExp(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+fn escapeRegExp(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 function titleCase(value) { return normalize(value).replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()); }
 function slug(value) { return normalize(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "schema"; }
 function round(value) {
@@ -1270,9 +1266,6 @@ function normalize(value) {
 function unique(values) {
   return [...new Set((Array.isArray(values) ? values : []).map(normalize).filter(Boolean))];
 }
-// ============================================================================
-// CROSS-DOMAIN SYNONYM MAPPING INDEX (Optimized Union-Find / Disjoint Set)
-// ============================================================================
 
 class CrossDomainMappingIndex {
   constructor() { 
@@ -1280,7 +1273,6 @@ class CrossDomainMappingIndex {
     this.groupMap = new Map();
   }
 
-  // Internal: Find root with path compression (O(1) amortized)
   _find(node) {
     if (!this.parent.has(node)) {
       this.parent.set(node, node);
@@ -1291,7 +1283,6 @@ class CrossDomainMappingIndex {
     while (root !== this.parent.get(root)) {
       root = this.parent.get(root);
     }
-    // Path compression for faster future lookups
     let curr = node;
     while (curr !== root) {
       let nxt = this.parent.get(curr);
@@ -1309,7 +1300,6 @@ class CrossDomainMappingIndex {
     const rootA = this._find(pA);
     const rootB = this._find(pB);
 
-    // Union: Merge disjoint sets if they aren't already connected
     if (rootA !== rootB) {
       this.parent.set(rootB, rootA);
       
@@ -1319,7 +1309,7 @@ class CrossDomainMappingIndex {
       for (const item of groupB) {
         groupA.add(item);
       }
-      this.groupMap.delete(rootB); // Free up memory
+      this.groupMap.delete(rootB);
     }
   }
 
@@ -1330,7 +1320,6 @@ class CrossDomainMappingIndex {
     const root = this._find(p);
     const group = this.groupMap.get(root);
     
-    // Return all connected synonyms EXCEPT the queried path itself
     return Array.from(group).filter(item => item !== p);
   }
 }
@@ -1341,8 +1330,6 @@ export function initializeCrossDomainSchemaParser(mappings = []) {
   if (!Array.isArray(mappings)) return;
   for (const entry of mappings) {
     if (entry && Array.isArray(entry.synonyms) && entry.synonyms.length > 1) {
-      // FAANG Optimization: O(N) mapping instead of O(N^2) cross-product loop.
-      // The Union-Find structure will naturally link all items transitively.
       const baseNode = entry.synonyms[0];
       for (let i = 1; i < entry.synonyms.length; i++) {
         crossDomainIndex.registerLink(baseNode, entry.synonyms[i]);

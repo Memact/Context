@@ -14,6 +14,17 @@ export function resolveSchemaLifecycleState(metrics = {}, thresholds = {}) {
   if (metrics.user_confirmed) return SCHEMA_LIFECYCLE_STATES.USER_CONFIRMED;
   if (metrics.contradiction_count > 0) return SCHEMA_LIFECYCLE_STATES.CONTRADICTED;
   if (metrics.weakened) return SCHEMA_LIFECYCLE_STATES.WEAKENED;
+  
+  // ✈️ Vacation Mode Guardrail for state graduation
+  const isVacationModeActive = !!(thresholds.vacationMode || thresholds.options?.vacationMode || thresholds.session?.vacationMode);
+  if (isVacationModeActive && metrics.category) {
+    const targetTransientCategories = new Set(["travel", "location", "fitness", "food-delivery", "food_delivery", "dining"]);
+    if (targetTransientCategories.has(String(metrics.category).toLowerCase().trim())) {
+      // Force it to remain emerging; do not allow it to graduate to repeated or reinforced status
+      return SCHEMA_LIFECYCLE_STATES.EMERGING;
+    }
+  }
+
   if (
     metrics.support >= Math.max(thresholds.minSupport * 3, 8) &&
     metrics.confidence >= 0.7 &&
