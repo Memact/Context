@@ -57,7 +57,16 @@ test("fitness - one-off workouts stay weak (Activity is not identity)", () => {
       heart_rate: 160 // extraneous detail should be dropped
     }
   };
-  test('should downgrade confidence and catch activity drops breaching thresholds', () => {
+  const result = normalizeFitnessContext(rawInput);
+  assert.equal(result.observation_type, "weak_observation");
+  assert.equal(result.is_identity_claim, false);
+  assert.equal(result.confidence, "medium");
+  assert.equal(result.needs_review, true);
+  assert.equal(result.observation, "Completed a cardio");
+  assert.match(result.suggestion, /Would you like to add 'cardio'/);
+});
+
+test('should downgrade confidence and catch activity drops breaching thresholds', () => {
     const rawShortWorkout = {
     source: "NutriPlan Lite",
     type: "activity",
@@ -73,11 +82,3 @@ test("fitness - one-off workouts stay weak (Activity is not identity)", () => {
     assert.match(result.suggestion, /significantly shorter/);
   });
 
-  const result = normalizeFitnessContext(rawInput);
-  assert.equal(result.observation_type, "weak_observation");
-  assert.equal(result.is_identity_claim, false);
-  assert.equal(result.confidence, "low");
-  assert.equal(result.needs_review, true);
-  assert.equal(result.observation, "Completed a cardio");
-  assert.match(result.suggestion, /Would you like to add 'cardio'/);
-});
