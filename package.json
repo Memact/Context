@@ -2,7 +2,7 @@
   "name": "memact-context",
   "private": true,
   "version": "0.0.0",
-  "description": "Context category layer for turning app input into user-readable Memact memory suggestions.",
+  "description": "Active category registry defining schema shapes and sensitivity rules.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./src/engine.mjs",
