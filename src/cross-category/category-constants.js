@@ -1,0 +1,81 @@
+/**
+ * Cross-Category Connection Constants
+ */
+
+const CATEGORIES = {
+  FITNESS: 'fitness',
+  FOOD: 'food',
+  MUSIC: 'music',
+  READING: 'reading',
+  WORK: 'work',
+  SHOPPING: 'shopping',
+  TRAVEL: 'travel',
+  HEALTH: 'health',
+  SOCIAL: 'social',
+  ENTERTAINMENT: 'entertainment'
+};
+
+const CONNECTION_STATUS = {
+  PENDING: 'pending',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+  ARCHIVED: 'archived'
+};
+
+const CONNECTION_TYPES = {
+  STRONG: 'strong',
+  WEAK: 'weak',
+  POTENTIAL: 'potential',
+  TEMPORAL: 'temporal',
+  BEHAVIORAL: 'behavioral'
+};
+
+const CATEGORY_RELATIONSHIPS = {
+  [CATEGORIES.FITNESS]: {
+    related: [CATEGORIES.HEALTH, CATEGORIES.FOOD, CATEGORIES.SOCIAL],
+    weight: 0.8
+  },
+  [CATEGORIES.FOOD]: {
+    related: [CATEGORIES.HEALTH, CATEGORIES.FITNESS, CATEGORIES.SHOPPING],
+    weight: 0.7
+  },
+  [CATEGORIES.MUSIC]: {
+    related: [CATEGORIES.ENTERTAINMENT, CATEGORIES.SOCIAL, CATEGORIES.WORK],
+    weight: 0.6
+  },
+  [CATEGORIES.READING]: {
+    related: [CATEGORIES.WORK, CATEGORIES.ENTERTAINMENT, CATEGORIES.SOCIAL],
+    weight: 0.6
+  },
+  [CATEGORIES.WORK]: {
+    related: [CATEGORIES.READING, CATEGORIES.SOCIAL, CATEGORIES.TRAVEL],
+    weight: 0.7
+  },
+  [CATEGORIES.SHOPPING]: {
+    related: [CATEGORIES.FOOD, CATEGORIES.TRAVEL, CATEGORIES.ENTERTAINMENT],
+    weight: 0.5
+  },
+  [CATEGORIES.TRAVEL]: {
+    related: [CATEGORIES.WORK, CATEGORIES.SHOPPING, CATEGORIES.FITNESS],
+    weight: 0.6
+  },
+  [CATEGORIES.HEALTH]: {
+    related: [CATEGORIES.FITNESS, CATEGORIES.FOOD, CATEGORIES.SOCIAL],
+    weight: 0.9
+  },
+  [CATEGORIES.SOCIAL]: {
+    related: [CATEGORIES.MUSIC, CATEGORIES.ENTERTAINMENT, CATEGORIES.WORK],
+    weight: 0.7
+  },
+  [CATEGORIES.ENTERTAINMENT]: {
+    related: [CATEGORIES.MUSIC, CATEGORIES.SOCIAL, CATEGORIES.READING],
+    weight: 0.6
+  }
+};
+
+module.exports = {
+  CATEGORIES,
+  CONNECTION_STATUS,
+  CONNECTION_TYPES,
+  CATEGORY_RELATIONSHIPS
+};

@@ -589,18 +589,23 @@ export function formatSchemaReport(result) {
     "Virtual Context Patterns",
   ];
 
-  if (!result.schemas.length) {
+  if (!result.schemas || !result.schemas.length) {
     lines.push("No virtual cognitive schemas met the formation threshold.");
     return lines.join("\n");
   }
-
+  
   result.schemas.forEach((schema, index) => {
-    lines.push(`${index + 1}. ${schema.label}`);
+    // Add a visual [TEMPORARY] badge if the schema configuration reflects a temporary state
+    const badge = schema.temporary ? " [TEMPORARY]" : "";
+    lines.push(`${index + 1}. ${schema.label}${badge}`);
     lines.push(`   state=${schema.state} support=${schema.support} weighted=${schema.weighted_support.toFixed(3)} confidence=${schema.confidence.toFixed(3)}`);
+    if (schema.ttl) {
+      lines.push(`   expires=${new Date(schema.ttl).toISOString()}`);
+    }
     lines.push(`   basis=${schema.formation_basis}`);
     lines.push(`   frame=${schema.core_interpretation}`);
   });
-
+  
   return lines.join("\n");
 }
 
