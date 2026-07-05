@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { applyLowConfidenceDynamicDemotion, resolveDemotionConfig } from "./context-demotion.mjs";
+import { provenanceTracker } from "./provenance-tracker.mjs";
 
 const STOP_WORDS = new Set(["a", "an", "and", "app", "can", "for", "from", "get", "of", "the", "to", "use", "user", "with"]);
 const HIGH_SENSITIVITY_PREFIXES = ["identity", "diet.allergy"];
@@ -428,11 +429,17 @@ function scoreMemory(requestText, requestTokens, synonymFields, memory = {}, req
   }
 
   const maxComponent = Math.max(lexical, fieldPathSimilarity, synonymBoost, crossDomainRelevanceVector);
-  const rawScore = maxComponent + crossDomainRelevance;
+  const rawScore = maxComponent + crossDomainRelevance + developerSearchPersonalizationBoost;
   const clampedScore = Math.max(0, Math.min(1, rawScore));
-  const score = round(clampedScore);
+  let score = round(clampedScore);
   
   const reasons = [];
+  
+  if (provenanceTracker.detectRecommendationLoop(memory, options.loopWindowMs)) {
+    const dampeningFactor = options.dampeningFactor ?? 0.4;
+    score = round(score * dampeningFactor);
+    reasons.push("feedback loop dampening applied");
+  }
 
   let categoryWeightLog = null;
   if (returnMatchLogs) {
@@ -960,6 +967,7 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
     }
 
     let crossCategoryPromotionBoost = 0;
+    let crossCategoryPromotionReason = "";
     if (category === "learning") {
       const isLanguageLearningTopicField = /(^|\.)active_topics$|(^|\.)current_goals$|(^|\.)dialect_preferences$|(^|\.)dialect_preferences\.|(^|\.)target_languages$/.test(fieldPath);
       if (isLanguageLearningTopicField) {
@@ -977,12 +985,21 @@ export function rankContextNodes(taskContext, memoryRecords = [], options = {}) 
     }
   
     const rawScore = Math.max(lexicalScore, categoryMatchScore, relevanceVectorScore, crossCategoryPromotionBoost) * customWeight;
-    const score = Number(Math.max(0, Math.min(1, rawScore)).toFixed(3));
+    let score = Number(Math.max(0, Math.min(1, rawScore)).toFixed(3));
+
+    if (provenanceTracker.detectRecommendationLoop(memory, options.loopWindowMs)) {
+      const dampeningFactor = options.dampeningFactor ?? 0.4;
+      score = Number((score * dampeningFactor).toFixed(3));
+      reasons.push("feedback loop dampening applied");
+    }
 
     if (lexicalScore > 0) reasons.push("lexical overlap");
     if (categoryMatchScore > 0) reasons.push("category match");
     if (relevanceVectorScore > 0) reasons.push("relevance vector mapping");
     if (customWeight !== 1.0) reasons.push(`custom weight multiplier: ${customWeight}`);
+    if (crossCategoryPromotionBoost > 0 && crossCategoryPromotionReason) {
+      reasons.push(crossCategoryPromotionReason);
+    }
 
     return { memory, score, reasons: reasons.length ? reasons : ["weak semantic fallback"] };
   });

@@ -61,6 +61,41 @@ export class ProvenanceTracker {
   clear() {
     this.logs.clear();
   }
+
+  /**
+   * Identifies if a write/claim constitutes a recommendation feedback loop.
+   *
+   * @param {Object} claim - Incoming/candidate context memory node.
+   * @param {number} [windowMs] - Loop detection sliding time window (default: 10 minutes).
+   * @returns {boolean} True if a feedback loop is detected.
+   */
+  detectRecommendationLoop(claim, windowMs = 600000) {
+    if (!claim) return false;
+    const cutoff = Date.now() - windowMs;
+    const field = String(claim.field_path || "").toLowerCase().trim();
+    const category = String(claim.category || "").toLowerCase().trim();
+
+    const candidateValues = [];
+    if (Array.isArray(claim.value)) {
+      candidateValues.push(...claim.value.map(v => String(v).toLowerCase().trim()));
+    } else if (claim.value !== undefined && claim.value !== null) {
+      candidateValues.push(String(claim.value).toLowerCase().trim());
+    }
+
+    for (const log of this.logs.values()) {
+      if (log.timestamp >= cutoff) {
+        if (log.fields.has(field) || log.fields.has(category)) {
+          return true;
+        }
+        for (const val of candidateValues) {
+          if (val && log.values.has(val)) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
 }
 
 export const provenanceTracker = new ProvenanceTracker();
