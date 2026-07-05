@@ -75,8 +75,6 @@ function parseCalories(calories) {
   }
   return null;
 }
-let discrepancyDetected = false;
-let customSuggestion = null;
 
 export function normalizeFitnessContext(input,baseline=null) {
   if (!input || !input.data) return null;
@@ -94,10 +92,12 @@ export function normalizeFitnessContext(input,baseline=null) {
       reason: "Sensitive fields (like allergies) cannot be inferred from activity. They require explicit user consent."
     };
   }
+  let discrepancyDetected = false;
+  let customSuggestion = null;
   if (baseline) {
   
-    if (type === "activity" && cleanedData.duration && baseline.avg_activity_duration_minutes) {
-      const incomingMins = parseDurationToMinutes(cleanedData.duration);
+    if (type === "activity" && data.duration && baseline.avg_activity_duration_minutes) {
+      const incomingMins = parseDurationToMinutes(data.duration);
       if (incomingMins) {
         const floor = baseline.avg_activity_duration_minutes * contextFields.activity_log.variance_threshold_duration_pct;
         if (incomingMins < floor) {
@@ -106,8 +106,8 @@ export function normalizeFitnessContext(input,baseline=null) {
         }
       }
     }
-    if (type === "meal" && cleanedData.calories && baseline.avg_meal_calories) {
-      const incomingKcal = parseCalories(cleanedData.calories);
+    if (type === "meal" && data.calories && baseline.avg_meal_calories) {
+      const incomingKcal = parseCalories(data.calories);
       if (incomingKcal) {
         const variance = Math.abs(incomingKcal - baseline.avg_meal_calories);
         if (variance > contextFields.meal_log.variance_threshold_calories) {
