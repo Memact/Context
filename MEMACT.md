@@ -1,169 +1,56 @@
-# Memact Contributor Handoff
+# Memact — Context
 
-Memact is a place where users see what apps know about them and control it.
+Memact is open identity infrastructure.
 
-## The idea
+Users own an identity address. Apps interact with identity providers through open protocols.
 
-Most apps build a private version of the user.
+## What Context Does
 
-They learn from clicks, searches, orders, playlists, watch history, saved items, skipped items, repeated settings, and habits. The user usually cannot see that profile clearly. They cannot clean it up. They cannot move it to another app. They just get whatever personalization the app decides to give them.
+Context is the **category schema registry** for the Memact identity protocol.
 
-Memact flips that.
+Context defines:
+- **What categories exist** — fitness, shopping, music, travel, productivity, and more
+- **What fields belong to each category** — the vocabulary apps use when contributing observations
+- **What is sensitive** — which fields require extra care in permission enforcement
+- **What a valid observation looks like** — field types, constraints, and examples
 
-An app may send a memory suggestion directly, like:
+Context does NOT execute normalization. Context does NOT perform matching. Context does NOT store data.
 
-```text
-User prefers high-energy music.
-```
+Context is a passive registry of shape definitions.
 
-Or it may send app activity records, like:
+## How Context Fits the Protocol
 
-```text
-User replayed Brazilian phonk playlists 18 times this month and skipped slow acoustic playlists.
-```
+When an app contributes an observation via CCP, it must specify:
+- A `category` from the Context registry (e.g., `fitness.v1`)
+- A `field` within that category (e.g., `preferred_activity`)
 
-Those are not the same thing.
+This ensures that any two apps using `fitness.v1.preferred_activity` mean the same thing, enabling the identity provider to merge, rank, and compare contributions across apps.
 
-Context mainly categorizes app input. It also defines how activity from a category should be handled before Memact turns it into a memory suggestion.
+## Category Registry
 
-This repo was formerly called Schema. If an older issue or PR says "Schema," it means this Context repo.
+Current registered categories (all v1):
 
-For the music example, Context can say:
+| Category | Description |
+|---|---|
+| `fitness.v1` | Physical activity, workouts, health metrics |
+| `shopping.v1` | Purchase patterns, preferences, brand affinities |
+| `music.v1` | Listening history, genre preferences, artist affinities |
+| `travel.v1` | Trip history, destination preferences, travel style |
+| `productivity.v1` | Work patterns, tool preferences, scheduling habits |
+| `food.v1` | Dietary preferences, restrictions, cuisine affinities |
+| `entertainment.v1` | Content consumption, genre preferences |
+| `learning.v1` | Learning style, topics of interest, skill progression |
+| `social.v1` | Interaction patterns, communication preferences |
+| `finance.v1` | Spending patterns (sensitivity: high) |
+| `health.v1` | Medical context (sensitivity: restricted) |
+| `location.v1` | Geographic preferences (sensitivity: high) |
+| `devices.v1` | Device and UI preferences |
+| `language.v1` | Language preferences, reading level |
 
-```text
-category: music
-activity: repeated playlist replay
-possible memory: prefers high-energy Brazilian phonk
-care note: do not expose raw listening history by default
-```
+## Contributing
 
-Then Wiki can show a readable proposal:
+To propose a new category or add a field to an existing category, open an RFC issue in the `protocol` repository.
 
-```text
-Prefers high-energy Brazilian phonk.
-```
+## License
 
-The user can accept it, reject it, or edit it:
-
-```text
-I like Brazilian phonk mostly while working out.
-```
-
-That edited user version is stronger than the app guess.
-
-Important: Context is not a surveillance or inference free-for-all. It defines categories, examples, fields, and safe rules so app activity can become user-reviewable memory suggestions later.
-
-## Core rule
-
-Activity is not identity.
-
-A person reading one article, ordering one meal, skipping one song, searching one topic, or exporting one file does not mean Memact should turn that into a permanent fact about them.
-
-Patterns matter. User edits matter more. One-off activity should stay weak, temporary, or low-confidence unless the user chooses to keep it.
-
-## What contributors do in Context
-
-Context is the main beginner-friendly contribution path.
-
-You pick an app category and define what useful memory looks like there.
-
-Good category examples:
-
-- music
-- video-streaming
-- shopping
-- learning
-- travel
-- food-delivery
-- news-articles
-- creator-tools
-- productivity
-- AI assistants
-
-For each category, add:
-
-- useful memory fields
-- app activity examples
-- normalized memory examples
-- user-facing Wiki entry templates
-- fields that need extra care
-- category-level permission suggestions
-- basic tests
-
-Do not build random features. Keep the PR focused on one category.
-
-## What a good category should do
-
-A good category should make it clear what Memact is allowed to understand from an app.
-
-It should separate:
-
-- stable preferences from temporary activity
-- explicit user choices from weak app guesses
-- useful summaries from raw private data
-- safe personalization memory from sensitive guesses
-
-Bad:
-
-```text
-User is anxious because they watched productivity videos at night.
-```
-
-Better:
-
-```text
-Often watches productivity videos in the evening.
-```
-
-Best, after user edit:
-
-```text
-I prefer productivity content in the evening, especially short practical videos.
-```
-
-## Parts of Memact
-
-- Access handles consent, apps, API keys, scopes, and permissions.
-- Wiki is where users add, edit, approve, reject, delete, and share context.
-- Context defines app category rules and proposal templates.
-- Memory stores accepted context, history, retrieval, and app-safe summaries.
-- Contracts defines shared shapes and validators.
-- SDK helps apps connect to Memact.
-- Website is the user and developer portal.
-
-## Rules
-
-- Apps can send memory suggestions or app activity records.
-- Activity is not identity.
-- Users control what becomes memory.
-- Default visibility should be private.
-- Apps should not get full Wiki access.
-- Apps should only get relevant category memory with permission.
-- User-added memory is stronger than app-proposed memory.
-- Important app writes should require approval.
-- Prefer readable summaries over raw personal data.
-- Do not infer sensitive traits.
-- Do not write fake certainty.
-- Keep user-facing copy simple.
-- Do not bring back Capture, Inference, or Intent as current product language.
-
-## Contribution path
-
-Start with an issue labeled:
-
-- `SSoC26`
-- `Easy`
-- `good first issue`
-- `context`
-- `schema` for older issues that have not been renamed yet
-
-Comment before starting so work does not get duplicated.
-
-Run checks before opening a PR:
-
-```powershell
-npm install
-npm run check
-```
-
-Keep the first PR small. One category, clear examples, basic tests.
+Apache 2.0.
