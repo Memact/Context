@@ -1,0 +1,4 @@
+SSoC26 Tracking File
+Issue: #235
+Repository: Memact/Context
+Feature: Semantic Overlay Validation Failure Trace Logger
