@@ -2,6 +2,8 @@
 
 Context defines the categories and schema shapes for user data.
 
+<!-- Tracking SDK PR #96 -->
+
 ## What Context Does
 
 Context is a schema registry. It defines:
