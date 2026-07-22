@@ -1,4 +1,4 @@
 ## SSoC26 Dummy PR
 
 Original PR:
-https://github.com/Memact/Protocol/issues/31
+https://github.com/Memact/Protocol/issues/50
