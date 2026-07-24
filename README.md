@@ -1,5 +1,6 @@
 # Memact Context
 
+
 Context defines the categories and schema shapes for user data.
 
 <!-- Tracking SDK PR #96 -->
