@@ -1,10 +1,14 @@
 # Memact Context
 
+
 Context defines the categories and schema shapes for user data.
 
 <!-- Tracking SDK PR #97 -->
+<!-- Tracking SDK PR #96 -->
+
 ## What Context Does
 
+<!-- Tracking SDK PR #98 -->
 Context is a schema registry. It defines:
 - The registered categories (such as fitness, shopping, travel, and productivity).
 - The fields allowed inside each category (the words apps use when suggesting observations).
