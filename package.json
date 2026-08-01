@@ -8,6 +8,7 @@
   "main": "./src/engine.mjs",
   "exports": {
     ".": "./src/engine.mjs",
+    "./schema-adapter": "./src/schema-adapter.mjs",
     "./context-matcher": "./src/context-matcher.mjs",
     "./context-goals": "./src/context-goals.mjs",
     "./lifecycle": "./src/lifecycle.mjs",
